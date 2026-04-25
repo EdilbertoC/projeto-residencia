@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import './App.css'
+import { useAuth } from './auth/useAuth.js'
 import { AppShell } from './components/AppShell.jsx'
 import { AgendaPage } from './pages/AgendaPage.jsx'
 import { AnalyticsPage } from './pages/AnalyticsPage.jsx'
@@ -20,6 +21,7 @@ import { patientRepository } from './repositories/patientRepository.js'
 
 function App() {
   const [location, setLocation] = useState(() => readLocation())
+  const auth = useAuth()
 
   const navigate = useCallback((to, options = {}) => {
     if (options.replace) {
@@ -48,20 +50,76 @@ function App() {
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
 
-  const route = useMemo(() => resolveRoute(location.pathname, navigate), [location.pathname, navigate])
+  useEffect(() => {
+    if (auth.isLoading) {
+      return
+    }
+
+    const route = resolveRoute(location.pathname, navigate, auth)
+
+    let redirectPath = null
+
+    if (!auth.isAuthenticated && route.withShell) {
+      redirectPath = '/login'
+    } else if (auth.isAuthenticated && (location.pathname === '/' || location.pathname === '/login')) {
+      redirectPath = '/inicio'
+    }
+
+    if (!redirectPath) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      navigate(redirectPath, { replace: true })
+    }, 0)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [auth, location.pathname, navigate])
+
+  const route = useMemo(() => resolveRoute(location.pathname, navigate, auth), [auth, location.pathname, navigate])
+
+  if (auth.isLoading) {
+    return <FullPageLoading />
+  }
+
+  if (!auth.isAuthenticated && route.withShell) {
+    return <FullPageLoading />
+  }
+
+  if (auth.isAuthenticated && (location.pathname === '/' || location.pathname === '/login')) {
+    return <FullPageLoading />
+  }
 
   if (!route.withShell) {
     return route.element
   }
 
+  async function handleLogout() {
+    const result = await auth.logout()
+
+    if (result.ok) {
+      navigate('/login', { replace: true })
+    }
+  }
+
+  const account = route.account || buildAccount(auth)
+
   return (
-    <AppShell currentPath={location.pathname} navigate={navigate} routeTitle={route.title}>
+    <AppShell
+      account={account}
+      currentPath={location.pathname}
+      navigate={navigate}
+      onLogout={handleLogout}
+      routeTitle={route.title}
+    >
       {route.element}
     </AppShell>
   )
 }
 
-function resolveRoute(pathname, navigate) {
+function resolveRoute(pathname, navigate, auth = {}) {
+  const account = buildAccount(auth)
+
   if (pathname === '/' || pathname === '/login') {
     return {
       element: <LoginPage navigate={navigate} />,
@@ -183,9 +241,10 @@ function resolveRoute(pathname, navigate) {
 
   if (pathname === '/perfil') {
     return {
-      element: <ProfilePage navigate={navigate} />,
+      element: <ProfilePage account={account} key={account.id || account.email} />,
       title: 'Perfil',
       withShell: true,
+      account,
     }
   }
 
@@ -201,7 +260,85 @@ function resolveRoute(pathname, navigate) {
     element: <NotFoundPage navigate={navigate} />,
     title: 'Tela nao encontrada',
     withShell: true,
+    account,
   }
+}
+
+function buildAccount(auth) {
+  const profile = auth.profile || {}
+  const user = auth.user || {}
+  const metadata = user.user_metadata || {}
+  const primaryRole = auth.primaryRole || user.app_metadata?.user_role || user.role || ''
+  const displayName =
+    profile.full_name ||
+    profile.name ||
+    profile.display_name ||
+    metadata.full_name ||
+    metadata.name ||
+    user.email ||
+    'Usuario'
+  const roleLabel = formatRole(primaryRole || profile.role || profile.cargo)
+  const email = profile.email || user.email || ''
+
+  return {
+    email,
+    id: user.id || profile.id || '',
+    initials: getInitials(displayName || email),
+    name: displayName,
+    phone: profile.phone || profile.phone_mobile || profile.telefone || '',
+    primaryRole,
+    profile,
+    roleLabel,
+    roles: auth.roles || [],
+    unit: profile.unit || profile.clinic || profile.clinica || profile.organization || '',
+  }
+}
+
+function formatRole(role) {
+  if (!role) {
+    return 'Usuario autenticado'
+  }
+
+  const labels = {
+    admin: 'Administrador',
+    authenticated: 'Usuario autenticado',
+    doctor: 'Medico(a)',
+    medico: 'Medico(a)',
+    patient: 'Paciente',
+    paciente: 'Paciente',
+    receptionist: 'Recepcao',
+    recepcao: 'Recepcao',
+  }
+
+  return labels[role] || role.replace(/_/g, ' ')
+}
+
+function getInitials(value) {
+  const parts = String(value || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+
+  if (parts.length === 0) {
+    return 'U'
+  }
+
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase()
+  }
+
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+}
+
+function FullPageLoading() {
+  return (
+    <main className="grid min-h-screen place-items-center bg-[#0a1628] px-6 text-white">
+      <div className="text-center">
+        <div className="mx-auto size-8 animate-spin rounded-full border-2 border-white/20 border-t-[#3b82f6]" />
+        <p className="mt-4 text-sm text-white/50">Carregando sessao...</p>
+      </div>
+    </main>
+  )
 }
 
 function readLocation() {

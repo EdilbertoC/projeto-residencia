@@ -1,22 +1,36 @@
 import { useState } from 'react'
 
+import { useAuth } from '../auth/useAuth.js'
 import { BrandLogo } from '../components/Brand.jsx'
 import loginClinicImage from '../assets/figma/login-clinic.png'
 
 export function LoginPage({ navigate }) {
+  const { authError, login } = useAuth()
   const [form, setForm] = useState({
     email: '',
     password: '',
   })
   const [showPassword, setShowPassword] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   function updateField(field, value) {
     setForm((current) => ({ ...current, [field]: value }))
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
-    navigate('/inicio')
+    setIsSubmitting(true)
+
+    const result = await login({
+      email: form.email.trim(),
+      password: form.password,
+    })
+
+    setIsSubmitting(false)
+
+    if (result.ok) {
+      navigate('/inicio', { replace: true })
+    }
   }
 
   return (
@@ -82,6 +96,7 @@ export function LoginPage({ navigate }) {
                   id="login-email"
                   onChange={(event) => updateField('email', event.target.value)}
                   placeholder="seu@email.com"
+                  required
                   type="email"
                   value={form.email}
                 />
@@ -107,6 +122,7 @@ export function LoginPage({ navigate }) {
                     id="login-password"
                     onChange={(event) => updateField('password', event.target.value)}
                     placeholder="••••••••"
+                    required
                     type={showPassword ? 'text' : 'password'}
                     value={form.password}
                   />
@@ -121,31 +137,22 @@ export function LoginPage({ navigate }) {
                 </div>
               </LoginField>
 
+              {authError ? (
+                <div className="rounded-[6px] border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm leading-5 text-red-200" role="alert">
+                  {authError}
+                </div>
+              ) : null}
+
               <button
-                className="inline-flex h-11 w-full items-center justify-center rounded-[6px] border border-[#3b82f6] bg-[#3b82f6] px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_15px_rgba(59,130,246,0.2),0_4px_6px_rgba(59,130,246,0.2)] transition hover:bg-[#3478ed] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3b82f6]"
+                className="inline-flex h-11 w-full items-center justify-center rounded-[6px] border border-[#3b82f6] bg-[#3b82f6] px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_15px_rgba(59,130,246,0.2),0_4px_6px_rgba(59,130,246,0.2)] transition hover:bg-[#3478ed] disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3b82f6]"
+                disabled={isSubmitting}
                 type="submit"
               >
-                Entrar
+                {isSubmitting ? 'Entrando...' : 'Entrar'}
               </button>
             </form>
           </div>
 
-          <button
-            className="absolute bottom-4 right-4 flex h-[29px] items-center gap-1.5 rounded-sm border border-white/10 bg-white/[0.05] px-3 font-mono text-[10px] font-medium leading-[15px] text-white/30 transition hover:text-white/50"
-            onClick={() => {
-              setForm({
-                email: 'recepcao@mediconnect.com',
-                password: 'demo123',
-              })
-            }}
-            title="Preencher credenciais mockadas"
-            type="button"
-          >
-            dev · credenciais
-            <span aria-hidden="true" className="text-[9px]">
-              ^
-            </span>
-          </button>
         </section>
       </div>
     </main>

@@ -1,14 +1,12 @@
 import { useState } from 'react'
 
-import { profileRepository } from '../repositories/profileRepository.js'
-
 const cardClass = 'rounded-2xl border border-[#404040] bg-[#262626] shadow-sm'
 const inputClass =
   'h-10 rounded-sm border border-[#404040] bg-[#171717] px-3 text-sm text-[#e5e5e5] outline-none transition placeholder:text-[#a3a3a3] focus:border-[#3b82f6] focus:ring-2 focus:ring-[#3b82f6]/20'
 
-export function ProfilePage() {
+export function ProfilePage({ account }) {
   const [saved, setSaved] = useState(false)
-  const [profile, setProfile] = useState(() => profileRepository.getCurrentUserProfile())
+  const [profile, setProfile] = useState(() => buildProfile(account))
 
   function update(field, value) {
     setSaved(false)
@@ -26,7 +24,7 @@ export function ProfilePage() {
         <section className={`${cardClass} p-6`}>
           <div className="mb-6 flex items-center gap-4">
             <div className="grid size-16 place-items-center rounded-full border border-[#3b82f6]/30 bg-[#3b82f6]/10 text-xl font-bold text-[#3b82f6]">
-              HC
+              {account?.initials || 'U'}
             </div>
             <div>
               <h2 className="text-lg font-bold text-[#f5f5f5]">{profile.name}</h2>
@@ -62,6 +60,7 @@ export function ProfilePage() {
             </div>
             <Field label="Unidade padrão">
               <select className={inputClass} onChange={(event) => update('unit', event.target.value)} value={profile.unit}>
+                <option value="">Nao informado</option>
                 <option>Clínica Boa Vista</option>
                 <option>Unidade Centro</option>
                 <option>Unidade Sul</option>
@@ -79,14 +78,24 @@ export function ProfilePage() {
         <aside className={`${cardClass} p-6`}>
           <h2 className="text-xl font-bold text-[#f5f5f5]">Resumo de acesso</h2>
           <dl className="mt-5 grid gap-4 text-sm">
-            <Info label="Perfil" value="Administrador da clínica" />
-            <Info label="Último acesso" value="07 abr 2026, 09:15" />
-            <Info label="Permissões" value="Agenda, pacientes, comunicação e configurações" />
+            <Info label="Perfil" value={account?.roleLabel || 'Usuario autenticado'} />
+            <Info label="E-mail" value={account?.email || '-'} />
+            <Info label="Roles" value={account?.roles?.length ? account.roles.join(', ') : account?.primaryRole || '-'} />
           </dl>
         </aside>
       </div>
     </div>
   )
+}
+
+function buildProfile(account = {}) {
+  return {
+    email: account.email || '',
+    name: account.name || '',
+    phone: account.phone || '',
+    role: account.roleLabel || 'Usuario autenticado',
+    unit: account.unit || '',
+  }
 }
 
 function Field({ children, label }) {
