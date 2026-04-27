@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { appointmentRepository } from '../repositories/appointmentRepository.js'
 import { patientRepository } from '../repositories/patientRepository.js'
@@ -15,7 +15,7 @@ const viewFilters = ['Dia', 'Semana', 'Mês']
 
 
 export function AgendaPage({ navigate }) {
-  const patients = patientRepository.getAll()
+  const [patients, setPatients] = useState([])
   const professionals = professionalRepository.getAll()
   const queue = appointmentRepository.getPredictiveQueueSummary()
   const timeline = appointmentRepository.getTodayTimeline()
@@ -25,12 +25,22 @@ export function AgendaPage({ navigate }) {
   const [modalOpen, setModalOpen] = useState(false)
   const [localAppointments, setLocalAppointments] = useState(() => appointmentRepository.getAll())
   const [form, setForm] = useState({
-    patientId: patients[0].id,
-    professional: professionals[0].name,
-    type: 'Retorno',
-    time: '15:30',
-    mode: 'Teleconsulta',
+  patientId: '',
+  professional: professionals[0]?.name || '',
+  type: 'Retorno',
+  time: '15:30',
+  mode: 'Teleconsulta',
+})
+
+useEffect(() => {
+  patientRepository.getAll().then((data) => {
+    setPatients(data)
+    setForm((current) => ({
+      ...current,
+      patientId: data[0]?.id || '',
+    }))
   })
+}, [])
 
   const visibleAppointments = useMemo(() => {
     if (status === 'Todos') {
