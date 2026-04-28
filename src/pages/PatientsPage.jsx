@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { patientRepository } from '../repositories/patientRepository.js'
 const ITEMS_PER_PAGE = 25
@@ -15,7 +15,10 @@ const patientTabs = [
 ]
 
 export function PatientsPage({ navigate }) {
-  const [rows, setRows] = useState(() => buildPatientRows())
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [saving, setSaving] = useState(false)
   const [view, setView] = useState('list')
   const [editingId, setEditingId] = useState(null)
   const [search, setSearch] = useState('')
@@ -30,6 +33,13 @@ export function PatientsPage({ navigate }) {
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [openMenuId, setOpenMenuId] = useState(null)
   const [page, setPage] = useState(1)
+
+  useEffect(() => {
+    buildPatientRows()
+      .then((data) => setRows(data))
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false))
+  }, [])
 
   const editingPatient = rows.find((patient) => patient.id === editingId)
   const insuranceOptions = useMemo(() => [...new Set(rows.map((patient) => patient.insurance).filter(Boolean))], [rows])
@@ -112,26 +122,51 @@ export function PatientsPage({ navigate }) {
     setView('form')
   }
 
-  function savePatient(patient) {
-    setRows((currentRows) => {
-      if (currentRows.some((item) => item.id === patient.id)) {
-        return currentRows.map((item) => (item.id === patient.id ? patient : item))
+  async function savePatient(patient) {
+  const isNew = !rows.some((item) => item.id === patient.id)
+  setSaving(true)
+
+  try {
+    if (isNew) {
+      const [created] = await patientRepository.create(patient)
+      const newRow = {
+        ...patient,
+        id: created.id,
+        detailId: created.id,
+        name: created.full_name || patient.name,
+        phone: created.phone_mobile || patient.phone,
       }
-
-      return [patient, ...currentRows]
-    })
-    setEditingId(null)
-    setPage(1)
-    setView('list')
-  }
-
-  function deletePatient(patientId) {
-    if (window.confirm('Tem certeza que deseja excluir este paciente?')) {
-      setRows((currentRows) => currentRows.filter((patient) => patient.id !== patientId))
-      setOpenMenuId(null)
-      setPage(1)
+      setRows((currentRows) => [newRow, ...currentRows])
+    } else {
+      await patientRepository.update(patient.id, patient)
+      setRows((currentRows) =>
+        currentRows.map((item) => (item.id === patient.id ? patient : item))
+      )
     }
+  } catch (err) {
+    window.alert(`Erro ao salvar paciente: ${err.message}`)
+    return
+  } finally {
+    setSaving(false)
   }
+
+  setEditingId(null)
+  setPage(1)
+  setView('list')
+}
+
+async function deletePatient(patientId) {
+  if (window.confirm('Tem certeza que deseja excluir este paciente?')) {
+    try {
+      await patientRepository.remove(patientId)
+      setRows((currentRows) => currentRows.filter((patient) => patient.id !== patientId))
+    } catch (err) {
+      window.alert(`Erro ao excluir paciente: ${err.message}`)
+    }
+    setOpenMenuId(null)
+    setPage(1)
+  }
+}
 
   function openDetail(patient) {
     setOpenMenuId(null)
@@ -141,6 +176,14 @@ export function PatientsPage({ navigate }) {
     }
 
     openForm(patient.id)
+  }
+
+  if (loading) {
+    return <p className="p-8 text-center text-[#a3a3a3]">Carregando pacientes...</p>
+  }
+
+  if (error) {
+    return <p className="p-8 text-center text-red-400">Erro ao carregar pacientes: {error}</p>
   }
 
   if (view === 'form') {
@@ -153,6 +196,7 @@ export function PatientsPage({ navigate }) {
         }}
         onSave={savePatient}
         patient={editingPatient}
+        saving={saving}
       />
     )
   }
@@ -394,7 +438,7 @@ export function PatientsPage({ navigate }) {
   )
 }
 
-function PatientEditor({ existingIds, onCancel, onSave, patient }) {
+function PatientEditor({ existingIds, onCancel, onSave, patient, saving }) {
   const [formData, setFormData] = useState(() => ({
     id: patient?.id || '',
     detailId: patient?.detailId || null,
@@ -609,13 +653,18 @@ function PatientEditor({ existingIds, onCancel, onSave, patient }) {
           <div className="flex justify-end gap-3 pt-4">
             <button
               className="rounded-lg border border-[#404040] bg-[#262626] px-5 py-2.5 text-sm font-medium text-[#e5e5e5] transition hover:bg-[#333333]"
+              disabled={saving}
               onClick={onCancel}
               type="button"
             >
               Cancelar
             </button>
-            <button className="rounded-lg bg-[#3b82f6] px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-[#2563eb]" type="submit">
-              Salvar alteracoes
+            <button
+              className="rounded-lg bg-[#3b82f6] px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-[#2563eb] disabled:opacity-60"
+              disabled={saving}
+              type="submit"
+            >
+              {saving ? 'Salvando...' : 'Salvar alteracoes'}
             </button>
           </div>
       </form>
@@ -1179,7 +1228,7 @@ function PatientIcon({ className = 'size-4', name }) {
   )
 }
 
-function buildPatientRows() {
+async function buildPatientRows() {
   return patientRepository.getDirectoryRows()
 }
 
