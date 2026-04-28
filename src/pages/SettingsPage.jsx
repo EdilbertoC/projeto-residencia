@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { FeatureCallout } from '../components/FeatureState.jsx'
 import { settingsRepository } from '../repositories/settingsRepository.js'
 
 
@@ -14,6 +15,13 @@ export function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-5xl">
+      <FeatureCallout
+        className="mb-6"
+        description="Preferências, integrações e backup ainda são protótipos locais, sem persistência real."
+        status="mock"
+        title="Configurações ainda estão em modo protótipo"
+      />
+
       <header className="mb-8">
         <h1 className="text-2xl font-bold tracking-tight text-[#f5f5f5]">Configurações</h1>
         <p className="mt-1 text-sm text-[#b8b8b8]">Gerencie preferências, segurança e integrações do MediConnect</p>
@@ -129,7 +137,6 @@ function NotificationsSection() {
     push: false,
     ai: true,
     appointment: true,
-    financial: false,
     report: true,
     noShow: true,
   })
@@ -146,7 +153,6 @@ function NotificationsSection() {
       <Subsection title="Tipos de Alerta">
         <ToggleRow checked={settings.ai} description="Alerta preditivo quando paciente tem alto risco de faltar" label="Risco de No-Show (IA)" onChange={(value) => setSettings((current) => ({ ...current, ai: value }))} />
         <ToggleRow checked={settings.appointment} description="Lembre pacientes 24h e 1h antes da consulta" label="Lembrete de Consulta" onChange={(value) => setSettings((current) => ({ ...current, appointment: value }))} />
-        <ToggleRow checked={settings.financial} description="Cobranças pendentes e inadimplências" label="Alertas Financeiros" onChange={(value) => setSettings((current) => ({ ...current, financial: value }))} />
         <ToggleRow checked={settings.report} description="Notificar quando relatórios mensais estiverem prontos" label="Relatório Disponível" onChange={(value) => setSettings((current) => ({ ...current, report: value }))} />
         <ToggleRow checked={settings.noShow} description="Confirmar quando uma falta é registrada no sistema" label="No-Show registrado" onChange={(value) => setSettings((current) => ({ ...current, noShow: value }))} />
       </Subsection>
@@ -299,7 +305,6 @@ function DataSection() {
           {[
             ['Pacientes (CSV)', 'Lista completa com dados cadastrais'],
             ['Prontuários (PDF)', 'Registros médicos do período'],
-            ['Financeiro (Excel)', 'Lançamentos e faturamento'],
             ['Relatório Geral (PDF)', 'Dashboard executivo completo'],
           ].map(([label, desc]) => (
             <button className="flex items-center gap-3 rounded-xl border border-[#404040] bg-[#171717] p-4 text-left transition hover:border-[#3b82f6]/40" key={label} type="button">

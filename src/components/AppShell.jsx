@@ -1,22 +1,22 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
+import { profileRepository } from '../repositories/profileRepository.js'
 import { BrandLogo } from './Brand.jsx'
 
 const navItems = [
   { href: '/inicio', label: 'Painel', icon: 'pulse', activePaths: ['/inicio', '/home', '/dashboard'] },
   { href: '/agenda', label: 'Agenda', icon: 'calendar' },
   { href: '/pacientes', label: 'Pacientes', icon: 'users', exact: true },
-  { href: '/prontuario', label: 'Prontuário', icon: 'file' },
-  { href: '/laudos', label: 'Laudos', icon: 'clipboard' },
+  { href: '/prontuario', label: 'Prontuario', icon: 'file' },
+  { href: '/laudos', label: 'Relatorios medicos', icon: 'clipboard' },
   {
     href: '/camunicacao',
-    label: 'Comunicação',
+    label: 'Comunicacao',
     icon: 'message',
     activePaths: ['/camunicacao', '/comunicacao', '/mensagens'],
   },
-  { href: '/financeiro', label: 'Financeiro', icon: 'dollar' },
-  { href: '/relatorios', label: 'Relatórios', icon: 'chart' },
-  { href: '/configuracoes', label: 'Configurações', icon: 'settings', activePaths: ['/configuracoes', '/config'] },
+  { href: '/relatorios', label: 'Relatorios', icon: 'chart' },
+  { href: '/configuracoes', label: 'Configuracoes', icon: 'settings', activePaths: ['/configuracoes', '/config'] },
 ]
 
 const titles = {
@@ -25,26 +25,23 @@ const titles = {
   '/dashboard': 'Painel',
   '/agenda': 'Agenda',
   '/consultas': 'Consultas',
-  '/laudos': 'Laudos',
+  '/laudos': 'Relatorios medicos',
   '/pacientes': 'Pacientes',
-  '/prontuario': 'Prontuário',
-  '/camunicacao': 'Comunicação',
-  '/comunicacao': 'Comunicação',
-  '/mensagens': 'Comunicação',
-  '/financeiro': 'Financeiro',
-  '/relatorios': 'Relatórios',
+  '/prontuario': 'Prontuario',
+  '/camunicacao': 'Comunicacao',
+  '/comunicacao': 'Comunicacao',
+  '/mensagens': 'Comunicacao',
+  '/relatorios': 'Relatorios',
   '/profissionais': 'Profissionais',
   '/perfil': 'Perfil',
-  '/configuracoes': 'Configurações',
-  '/config': 'Configurações',
+  '/configuracoes': 'Configuracoes',
+  '/config': 'Configuracoes',
 }
 
-export function AppShell({ account, children, currentPath, navigate, onLogout, routeTitle }) {
+export function AppShell({ children, currentPath, navigate, routeTitle }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [quickSearch, setQuickSearch] = useState('')
-  const displayName = account?.name || account?.email || 'Usuario'
-  const roleLabel = account?.roleLabel || 'Usuario autenticado'
-  const initials = account?.initials || 'U'
+  const [viewerProfile, setViewerProfile] = useState({ name: 'Usuario', role: 'Usuario do Sistema' })
 
   const pageTitle = useMemo(() => {
     if (currentPath.startsWith('/pacientes/') && routeTitle) {
@@ -53,6 +50,25 @@ export function AppShell({ account, children, currentPath, navigate, onLogout, r
 
     return routeTitle || titles[currentPath] || 'MediConnect'
   }, [currentPath, routeTitle])
+
+  useEffect(() => {
+    let active = true
+
+    profileRepository.getCurrentUserProfile()
+      .then((profile) => {
+        if (!active || !profile) return
+
+        setViewerProfile({
+          name: profile.name || 'Usuario',
+          role: profile.role || 'Usuario do Sistema',
+        })
+      })
+      .catch(() => {})
+
+    return () => {
+      active = false
+    }
+  }, [])
 
   function goTo(path) {
     setMenuOpen(false)
@@ -100,15 +116,8 @@ export function AppShell({ account, children, currentPath, navigate, onLogout, r
             onClick={() => goTo('/perfil')}
             type="button"
           >
-            <p className="truncate text-xs font-semibold text-[#e5e5e5]">{displayName}</p>
-            <p className="mt-0.5 truncate text-[11px] leading-4 text-[#a3a3a3]">{roleLabel}</p>
-          </button>
-          <button
-            className="mt-2 w-full rounded-md border border-[#404040] px-3 py-2 text-xs font-semibold text-[#a3a3a3] transition hover:border-[#525252] hover:text-[#e5e5e5]"
-            onClick={onLogout}
-            type="button"
-          >
-            Sair
+            <p className="truncate text-xs font-semibold text-[#e5e5e5]">{viewerProfile.name}</p>
+            <p className="mt-0.5 truncate text-[11px] leading-4 text-[#a3a3a3]">{viewerProfile.role}</p>
           </button>
         </div>
       </aside>
@@ -140,7 +149,7 @@ export function AppShell({ account, children, currentPath, navigate, onLogout, r
                   aria-label="Busca rapida"
                   className="h-[38px] w-full rounded-sm border border-[#404040] bg-[#303030] py-2 pl-10 pr-4 text-sm text-[#e5e5e5] outline-none transition placeholder:text-[#a3a3a3] focus:border-[#3b82f6] focus:ring-2 focus:ring-[#3b82f6]/20"
                   onChange={(event) => setQuickSearch(event.target.value)}
-                  placeholder="Buscar paciente, prontuário..."
+                  placeholder="Buscar paciente, prontuario..."
                   value={quickSearch}
                 />
               </div>
@@ -166,14 +175,14 @@ export function AppShell({ account, children, currentPath, navigate, onLogout, r
                 type="button"
               >
                 <span className="grid size-8 shrink-0 place-items-center rounded-full border border-[#3b82f6]/30 bg-[#3b82f6]/15 text-xs font-bold text-[#3b82f6]">
-                  {initials}
+                  {getInitials(viewerProfile.name)}
                 </span>
                 <span className="hidden min-w-0 sm:block">
                   <span className="block truncate text-sm font-semibold leading-4 text-[#e5e5e5]">
-                    {displayName}
+                    {viewerProfile.name}
                   </span>
                   <span className="mt-0.5 block truncate text-[11px] font-medium leading-4 text-[#51a2ff]">
-                    {roleLabel}
+                    {viewerProfile.role}
                   </span>
                 </span>
                 <ChevronDownIcon className="hidden size-4 text-[#a3a3a3] sm:block" />
@@ -342,4 +351,14 @@ function SearchIcon({ className = 'size-4' }) {
       <circle cx="11" cy="11" r="7" />
     </svg>
   )
+}
+
+function getInitials(name) {
+  return String(name || 'US')
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase()
 }

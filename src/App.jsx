@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { authRepository } from './repositories/authRepository.js'
+
 import './App.css'
-import { useAuth } from './auth/useAuth.js'
 import { AppShell } from './components/AppShell.jsx'
 import { AgendaPage } from './pages/AgendaPage.jsx'
 import { AnalyticsPage } from './pages/AnalyticsPage.jsx'
-import { FinancialPage } from './pages/FinancialPage.jsx'
 import { ForgotPasswordPage, LoginPage, RegisterPage } from './pages/AuthPages.jsx'
 import { HomePage } from './pages/HomePage.jsx'
 import { MedicalRecordsPage } from './pages/MedicalRecordsPage.jsx'
@@ -21,7 +21,6 @@ import { patientRepository } from './repositories/patientRepository.js'
 
 function App() {
   const [location, setLocation] = useState(() => readLocation())
-  const auth = useAuth()
 
   const navigate = useCallback((to, options = {}) => {
     if (options.replace) {
@@ -50,76 +49,25 @@ function App() {
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
 
-  useEffect(() => {
-    if (auth.isLoading) {
-      return
-    }
-
-    const route = resolveRoute(location.pathname, navigate, auth)
-
-    let redirectPath = null
-
-    if (!auth.isAuthenticated && route.withShell) {
-      redirectPath = '/login'
-    } else if (auth.isAuthenticated && (location.pathname === '/' || location.pathname === '/login')) {
-      redirectPath = '/inicio'
-    }
-
-    if (!redirectPath) {
-      return
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      navigate(redirectPath, { replace: true })
-    }, 0)
-
-    return () => window.clearTimeout(timeoutId)
-  }, [auth, location.pathname, navigate])
-
-  const route = useMemo(() => resolveRoute(location.pathname, navigate, auth), [auth, location.pathname, navigate])
-
-  if (auth.isLoading) {
-    return <FullPageLoading />
-  }
-
-  if (!auth.isAuthenticated && route.withShell) {
-    return <FullPageLoading />
-  }
-
-  if (auth.isAuthenticated && (location.pathname === '/' || location.pathname === '/login')) {
-    return <FullPageLoading />
-  }
+  const route = useMemo(() => resolveRoute(location.pathname, navigate), [location.pathname, navigate])
+  const isAuthenticated = authRepository.isAuthenticated()
 
   if (!route.withShell) {
     return route.element
   }
 
-  async function handleLogout() {
-    const result = await auth.logout()
-
-    if (result.ok) {
-      navigate('/login', { replace: true })
-    }
+  if (!isAuthenticated) {
+    return <LoginPage navigate={navigate} />
   }
 
-  const account = route.account || buildAccount(auth)
-
   return (
-    <AppShell
-      account={account}
-      currentPath={location.pathname}
-      navigate={navigate}
-      onLogout={handleLogout}
-      routeTitle={route.title}
-    >
+    <AppShell currentPath={location.pathname} navigate={navigate} routeTitle={route.title}>
       {route.element}
     </AppShell>
   )
 }
 
-function resolveRoute(pathname, navigate, auth = {}) {
-  const account = buildAccount(auth)
-
+function resolveRoute(pathname, navigate) {
   if (pathname === '/' || pathname === '/login') {
     return {
       element: <LoginPage navigate={navigate} />,
@@ -178,15 +126,10 @@ function resolveRoute(pathname, navigate, auth = {}) {
 
   if (pathname.startsWith('/pacientes/')) {
     const patientId = pathname.split('/')[2]
-    const patient = patientRepository.getById(patientId)
 
     return {
-      element: patient ? (
-        <PatientDetailPage navigate={navigate} patient={patient} />
-      ) : (
-        <NotFoundPage navigate={navigate} />
-      ),
-      title: patient?.name || 'Paciente nao encontrado',
+      element: <PatientDetailRoute navigate={navigate} patientId={patientId} />,
+      title: 'Paciente',
       withShell: true,
     }
   }
@@ -202,7 +145,7 @@ function resolveRoute(pathname, navigate, auth = {}) {
   if (pathname === '/laudos') {
     return {
       element: <ReportsPage navigate={navigate} />,
-      title: 'Laudos',
+      title: 'Relatorios medicos',
       withShell: true,
     }
   }
@@ -211,14 +154,6 @@ function resolveRoute(pathname, navigate, auth = {}) {
     return {
       element: <AnalyticsPage />,
       title: 'Relatórios',
-      withShell: true,
-    }
-  }
-
-  if (pathname === '/financeiro') {
-    return {
-      element: <FinancialPage />,
-      title: 'Financeiro',
       withShell: true,
     }
   }
@@ -241,10 +176,9 @@ function resolveRoute(pathname, navigate, auth = {}) {
 
   if (pathname === '/perfil') {
     return {
-      element: <ProfilePage account={account} key={account.id || account.email} />,
+      element: <ProfilePage navigate={navigate} />,
       title: 'Perfil',
       withShell: true,
-      account,
     }
   }
 
@@ -260,85 +194,34 @@ function resolveRoute(pathname, navigate, auth = {}) {
     element: <NotFoundPage navigate={navigate} />,
     title: 'Tela nao encontrada',
     withShell: true,
-    account,
   }
 }
 
-function buildAccount(auth) {
-  const profile = auth.profile || {}
-  const user = auth.user || {}
-  const metadata = user.user_metadata || {}
-  const primaryRole = auth.primaryRole || user.app_metadata?.user_role || user.role || ''
-  const displayName =
-    profile.full_name ||
-    profile.name ||
-    profile.display_name ||
-    metadata.full_name ||
-    metadata.name ||
-    user.email ||
-    'Usuario'
-  const roleLabel = formatRole(primaryRole || profile.role || profile.cargo)
-  const email = profile.email || user.email || ''
+function PatientDetailRoute({ navigate, patientId }) {
+  const [patient, setPatient] = useState(null)
+  const [loading, setLoading] = useState(true)
 
-  return {
-    email,
-    id: user.id || profile.id || '',
-    initials: getInitials(displayName || email),
-    name: displayName,
-    phone: profile.phone || profile.phone_mobile || profile.telefone || '',
-    primaryRole,
-    profile,
-    roleLabel,
-    roles: auth.roles || [],
-    unit: profile.unit || profile.clinic || profile.clinica || profile.organization || '',
-  }
-}
+  useEffect(() => {
+    let active = true
 
-function formatRole(role) {
-  if (!role) {
-    return 'Usuario autenticado'
+    patientRepository.getById(patientId)
+      .then((data) => {
+        if (active) setPatient(data)
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [patientId])
+
+  if (loading) {
+    return <div className="pt-10 text-sm text-[#a3a3a3]">Carregando paciente...</div>
   }
 
-  const labels = {
-    admin: 'Administrador',
-    authenticated: 'Usuario autenticado',
-    doctor: 'Medico(a)',
-    medico: 'Medico(a)',
-    patient: 'Paciente',
-    paciente: 'Paciente',
-    receptionist: 'Recepcao',
-    recepcao: 'Recepcao',
-  }
-
-  return labels[role] || role.replace(/_/g, ' ')
-}
-
-function getInitials(value) {
-  const parts = String(value || '')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-
-  if (parts.length === 0) {
-    return 'U'
-  }
-
-  if (parts.length === 1) {
-    return parts[0].slice(0, 2).toUpperCase()
-  }
-
-  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
-}
-
-function FullPageLoading() {
-  return (
-    <main className="grid min-h-screen place-items-center bg-[#0a1628] px-6 text-white">
-      <div className="text-center">
-        <div className="mx-auto size-8 animate-spin rounded-full border-2 border-white/20 border-t-[#3b82f6]" />
-        <p className="mt-4 text-sm text-white/50">Carregando sessao...</p>
-      </div>
-    </main>
-  )
+  return patient ? <PatientDetailPage navigate={navigate} patient={patient} /> : <NotFoundPage navigate={navigate} />
 }
 
 function readLocation() {

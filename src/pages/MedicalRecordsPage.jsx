@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 
+import { FeatureCallout } from '../components/FeatureState.jsx'
 import { medicalRecordRepository } from '../repositories/medicalRecordRepository.js'
 
 
@@ -34,6 +35,12 @@ export function MedicalRecordsPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 text-[#e5e5e5]">
+      <FeatureCallout
+        description="Prontuário, listagem e criação de registros ainda usam dados locais e não persistem na API."
+        status="mock"
+        title="Prontuário ainda é mockado"
+      />
+
       <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-[#e5e5e5]">Prontuário Médico</h1>

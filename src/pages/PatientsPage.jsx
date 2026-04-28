@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { patientRepository } from '../repositories/patientRepository.js'
 const ITEMS_PER_PAGE = 25
@@ -15,7 +15,10 @@ const patientTabs = [
 ]
 
 export function PatientsPage({ navigate }) {
-  const [rows, setRows] = useState(() => buildPatientRows())
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [saving, setSaving] = useState(false)
   const [view, setView] = useState('list')
   const [editingId, setEditingId] = useState(null)
   const [search, setSearch] = useState('')
@@ -30,6 +33,13 @@ export function PatientsPage({ navigate }) {
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [openMenuId, setOpenMenuId] = useState(null)
   const [page, setPage] = useState(1)
+
+  useEffect(() => {
+    buildPatientRows()
+      .then((data) => setRows(data))
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false))
+  }, [])
 
   const editingPatient = rows.find((patient) => patient.id === editingId)
   const insuranceOptions = useMemo(() => [...new Set(rows.map((patient) => patient.insurance).filter(Boolean))], [rows])
@@ -112,26 +122,51 @@ export function PatientsPage({ navigate }) {
     setView('form')
   }
 
-  function savePatient(patient) {
-    setRows((currentRows) => {
-      if (currentRows.some((item) => item.id === patient.id)) {
-        return currentRows.map((item) => (item.id === patient.id ? patient : item))
+  async function savePatient(patient) {
+  const isNew = !rows.some((item) => item.id === patient.id)
+  setSaving(true)
+
+  try {
+    if (isNew) {
+      const [created] = await patientRepository.create(patient)
+      const newRow = {
+        ...patient,
+        id: created.id,
+        detailId: created.id,
+        name: created.full_name || patient.name,
+        phone: created.phone_mobile || patient.phone,
       }
-
-      return [patient, ...currentRows]
-    })
-    setEditingId(null)
-    setPage(1)
-    setView('list')
-  }
-
-  function deletePatient(patientId) {
-    if (window.confirm('Tem certeza que deseja excluir este paciente?')) {
-      setRows((currentRows) => currentRows.filter((patient) => patient.id !== patientId))
-      setOpenMenuId(null)
-      setPage(1)
+      setRows((currentRows) => [newRow, ...currentRows])
+    } else {
+      await patientRepository.update(patient.id, patient)
+      setRows((currentRows) =>
+        currentRows.map((item) => (item.id === patient.id ? patient : item))
+      )
     }
+  } catch (err) {
+    window.alert(`Erro ao salvar paciente: ${err.message}`)
+    return
+  } finally {
+    setSaving(false)
   }
+
+  setEditingId(null)
+  setPage(1)
+  setView('list')
+}
+
+async function deletePatient(patientId) {
+  if (window.confirm('Tem certeza que deseja excluir este paciente?')) {
+    try {
+      await patientRepository.remove(patientId)
+      setRows((currentRows) => currentRows.filter((patient) => patient.id !== patientId))
+    } catch (err) {
+      window.alert(`Erro ao excluir paciente: ${err.message}`)
+    }
+    setOpenMenuId(null)
+    setPage(1)
+  }
+}
 
   function openDetail(patient) {
     setOpenMenuId(null)
@@ -141,6 +176,14 @@ export function PatientsPage({ navigate }) {
     }
 
     openForm(patient.id)
+  }
+
+  if (loading) {
+    return <p className="p-8 text-center text-[#a3a3a3]">Carregando pacientes...</p>
+  }
+
+  if (error) {
+    return <p className="p-8 text-center text-red-400">Erro ao carregar pacientes: {error}</p>
   }
 
   if (view === 'form') {
@@ -153,6 +196,7 @@ export function PatientsPage({ navigate }) {
         }}
         onSave={savePatient}
         patient={editingPatient}
+        saving={saving}
       />
     )
   }
@@ -257,43 +301,43 @@ export function PatientsPage({ navigate }) {
         ) : null}
 
         <div className="overflow-x-auto rounded-lg border border-[#404040]">
-          <table className="w-full whitespace-nowrap text-left text-sm">
+          <table className="w-full min-w-full table-fixed text-left text-sm">
             <thead className="bg-[#171717] text-xs font-semibold uppercase text-[#a3a3a3]">
               <tr>
-                <th className="px-6 py-4">Nome</th>
-                <th className="px-6 py-4">Telefone</th>
-                <th className="px-6 py-4">Cidade</th>
-                <th className="px-6 py-4">Estado</th>
-                <th className="px-6 py-4">Ultimo atendimento</th>
-                <th className="px-6 py-4">Proximo atendimento</th>
-                <th className="px-6 py-4 text-right">Acoes</th>
+                <th className="w-[24%] px-6 py-4">Nome</th>
+                <th className="w-[14%] px-6 py-4">Telefone</th>
+                <th className="w-[12%] px-6 py-4">Cidade</th>
+                <th className="w-[8%] px-6 py-4">Estado</th>
+                <th className="w-[16%] px-6 py-4">Ultimo atendimento</th>
+                <th className="w-[18%] px-6 py-4">Proximo atendimento</th>
+                <th className="sticky right-0 w-[8.5rem] bg-[#171717] px-6 py-4 text-right">Acoes</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#404040] bg-[#262626]">
               {paginatedPatients.length ? (
                 paginatedPatients.map((patient) => (
                   <tr className="transition hover:bg-[#303030]" key={patient.id}>
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 align-top">
                       <button className="flex items-center gap-3 text-left" onClick={() => openDetail(patient)} type="button">
-                        <span className="grid size-8 place-items-center rounded-full bg-[#333333] text-xs font-bold text-[#3b82f6]">
+                        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-[#333333] text-xs font-bold text-[#3b82f6]">
                           {patient.name.charAt(0)}
                         </span>
-                        <span>
-                          <span className="block font-medium text-[#e5e5e5] transition hover:text-[#3b82f6]">
+                        <span className="min-w-0">
+                          <span className="block whitespace-normal break-words font-medium text-[#e5e5e5] transition hover:text-[#3b82f6]">
                             {patient.name}
                           </span>
-                          <span className="mt-0.5 block text-xs text-[#a3a3a3]">
+                          <span className="mt-0.5 block whitespace-normal break-words text-xs text-[#a3a3a3]">
                             {patient.insurance || 'Sem convenio'} {patient.vip ? ' | VIP' : ''}
                           </span>
                         </span>
                       </button>
                     </td>
-                    <td className="px-6 py-4 text-[#a3a3a3]">{patient.phone}</td>
-                    <td className="px-6 py-4 text-[#a3a3a3]">{patient.city}</td>
-                    <td className="px-6 py-4 text-[#a3a3a3]">{patient.state}</td>
-                    <td className="px-6 py-4 text-[#a3a3a3]">{patient.lastVisit || 'Ainda nao houve atendimento'}</td>
-                    <td className="px-6 py-4 text-[#a3a3a3]">{patient.nextVisit || 'Nenhum atendimento agendado'}</td>
-                    <td className="relative px-6 py-4 text-right">
+                    <td className="px-6 py-4 align-top whitespace-normal break-words text-[#a3a3a3]">{patient.phone}</td>
+                    <td className="px-6 py-4 align-top whitespace-normal break-words text-[#a3a3a3]">{patient.city}</td>
+                    <td className="px-6 py-4 align-top text-[#a3a3a3]">{patient.state}</td>
+                    <td className="px-6 py-4 align-top whitespace-normal break-words text-[#a3a3a3]">{patient.lastVisit || 'Ainda nao houve atendimento'}</td>
+                    <td className="px-6 py-4 align-top whitespace-normal break-words text-[#a3a3a3]">{patient.nextVisit || 'Nenhum atendimento agendado'}</td>
+                    <td className="relative sticky right-0 bg-[#262626] px-6 py-4 text-right shadow-[-10px_0_12px_-12px_rgba(0,0,0,0.75)]">
                       <button
                         aria-label={`Acoes de ${patient.name}`}
                         className="rounded p-1 text-[#a3a3a3] transition hover:bg-[#333333] hover:text-[#e5e5e5]"
@@ -394,7 +438,7 @@ export function PatientsPage({ navigate }) {
   )
 }
 
-function PatientEditor({ existingIds, onCancel, onSave, patient }) {
+function PatientEditor({ existingIds, onCancel, onSave, patient, saving }) {
   const [formData, setFormData] = useState(() => ({
     id: patient?.id || '',
     detailId: patient?.detailId || null,
@@ -609,13 +653,18 @@ function PatientEditor({ existingIds, onCancel, onSave, patient }) {
           <div className="flex justify-end gap-3 pt-4">
             <button
               className="rounded-lg border border-[#404040] bg-[#262626] px-5 py-2.5 text-sm font-medium text-[#e5e5e5] transition hover:bg-[#333333]"
+              disabled={saving}
               onClick={onCancel}
               type="button"
             >
               Cancelar
             </button>
-            <button className="rounded-lg bg-[#3b82f6] px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-[#2563eb]" type="submit">
-              Salvar alteracoes
+            <button
+              className="rounded-lg bg-[#3b82f6] px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-[#2563eb] disabled:opacity-60"
+              disabled={saving}
+              type="submit"
+            >
+              {saving ? 'Salvando...' : 'Salvar alteracoes'}
             </button>
           </div>
       </form>
@@ -730,7 +779,7 @@ function PatientVisits({ navigate, patient }) {
     <div className="grid gap-3">
       {[
         { date: patient.nextVisit, status: 'Agendada', description: `Retorno para ${patient.condition}` },
-        { date: patient.lastVisit, status: 'Finalizada', description: 'Consulta registrada no historico local.' },
+        { date: patient.lastVisit, status: 'Finalizada', description: 'Consulta registrada no historico do paciente.' },
       ].map((visit) => (
         <div className="rounded-xl border border-[#404040] bg-[#171717] p-4" key={`${visit.date}-${visit.status}`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -765,7 +814,7 @@ function PatientDocuments({ patient }) {
       {patient.exams.map((exam) => (
         <div className="rounded-xl border border-[#404040] bg-[#171717] p-4" key={exam}>
           <p className="font-semibold text-[#f5f5f5]">{exam}</p>
-          <p className="mt-2 text-sm text-[#a3a3a3]">Pendente de revisão mockada.</p>
+          <p className="mt-2 text-sm text-[#a3a3a3]">Pendente de revisão.</p>
           <span className="mt-4 inline-flex rounded bg-amber-500/20 px-2.5 py-1 text-xs font-bold text-amber-400">
             A revisar
           </span>
@@ -1179,7 +1228,7 @@ function PatientIcon({ className = 'size-4', name }) {
   )
 }
 
-function buildPatientRows() {
+async function buildPatientRows() {
   return patientRepository.getDirectoryRows()
 }
 

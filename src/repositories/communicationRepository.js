@@ -1,4 +1,42 @@
+import { apiConfig, apiEndpoint, getAuthenticatedHeaders } from '../config/api.js'
+import { fetchJsonWithFallback } from './repositoryUtils.js'
+
 export const communicationRepository = {
+  async sendSms({ patientName, phone, content }) {
+    const message = `[MediConnect] Ola ${patientName}, ${content}`
+    const payload = {
+      telefone: normalizePhone(phone),
+      phone: normalizePhone(phone),
+      mensagem: message,
+      message,
+      paciente: patientName,
+    }
+
+    await fetchJsonWithFallback(
+      [
+        {
+          url: apiEndpoint('/enviar-sms-via-twilio'),
+          options: {
+            method: 'POST',
+            headers: getAuthenticatedHeaders(),
+            body: JSON.stringify(payload),
+          },
+        },
+        {
+          url: `${apiConfig.functionsUrl.replace(/\/+$/, '')}/send-sms`,
+          options: {
+            method: 'POST',
+            headers: getAuthenticatedHeaders(),
+            body: JSON.stringify(payload),
+          },
+        },
+      ],
+      'Falha no envio de SMS via Twilio.',
+    )
+
+    return true
+  },
+
   getCampaigns() {
     return [
       { title: 'Lembretes Anti-Falta', desc: 'Envio automatico 48h e 4h antes', count: '324 pacientes elegiveis' },
@@ -30,4 +68,10 @@ export const communicationRepository = {
       { id: 't6', name: 'Reagendamento Sugerido (IA)', channel: 'whatsapp', content: 'Ola {nome}! Que tal reagendar sua consulta para um horario mais conveniente? Temos vagas em {sugestoes}.', category: 'IA' },
     ]
   },
+}
+
+function normalizePhone(phone) {
+  const digits = String(phone || '').replace(/\D/g, '')
+  if (!digits) return ''
+  return digits.startsWith('55') ? `+${digits}` : `+55${digits}`
 }

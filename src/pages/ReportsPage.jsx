@@ -1,446 +1,476 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { patientRepository } from '../repositories/patientRepository.js'
+import { professionalRepository } from '../repositories/professionalRepository.js'
 import { reportRepository } from '../repositories/reportRepository.js'
 
+const ITEMS_PER_PAGE = 25
 
 const statusConfig = {
-  rascunho: {
+  draft: {
     label: 'Rascunho',
     pill: 'bg-amber-500/20 text-amber-400',
     stat: 'text-amber-400',
   },
-  finalizado: {
-    label: 'Finalizado',
-    pill: 'bg-emerald-500/20 text-emerald-400',
-    stat: 'text-emerald-400',
-  },
-  enviado: {
-    label: 'Enviado',
-    pill: 'bg-blue-500/20 text-blue-400',
-    stat: 'text-blue-400',
-  },
 }
 
-const adminUsers = reportRepository.getAdminUsers()
-const currentUser = reportRepository.getCurrentUser()
-const doctors = reportRepository.getDoctors()
-const reportTypes = reportRepository.getReportTypes()
-const templates = reportRepository.getTemplates()
-const emptyEditor = {
-  id: null,
-  type: reportTypes[0],
-  patient: '',
-  doctor: doctors[0],
-  content: '',
-  showDate: true,
-  signDigital: true,
-}
-
+const orderOptions = [
+  { label: 'Criacao mais recente', value: 'created_at.desc' },
+  { label: 'Criacao mais antiga', value: 'created_at.asc' },
+  { label: 'Prazo mais proximo', value: 'due_at.asc' },
+  { label: 'Prazo mais distante', value: 'due_at.desc' },
+]
 
 const inputClass =
   'h-10 w-full rounded-lg border border-[#404040] bg-[#1a1a1a] px-3 text-sm text-[#e5e5e5] outline-none transition placeholder:text-[#a3a3a3] focus:border-[#3b82f6] focus:ring-1 focus:ring-[#3b82f6]'
+const textareaClass =
+  'min-h-24 w-full rounded-lg border border-[#404040] bg-[#1a1a1a] px-3 py-2 text-sm text-[#e5e5e5] outline-none transition placeholder:text-[#a3a3a3] focus:border-[#3b82f6] focus:ring-1 focus:ring-[#3b82f6]'
 const labelClass = 'mb-1.5 block text-xs font-medium text-[#e5e5e5]'
 const cardClass = 'rounded-2xl border border-[#404040] bg-[#262626] shadow-sm'
 
+const emptyEditor = {
+  id: null,
+  patientId: '',
+  status: 'draft',
+  exam: '',
+  requestedBy: '',
+  cidCode: '',
+  diagnosis: '',
+  conclusion: '',
+  contentHtml: '',
+  contentJson: undefined,
+  hideDate: false,
+  hideSignature: false,
+  dueAt: '',
+}
+
 export function ReportsPage() {
-  const [reports, setReports] = useState(() => reportRepository.getInitialReports())
-  const [search, setSearch] = useState('')
+  const [reports, setReports] = useState([])
+  const [patients, setPatients] = useState([])
+  const [professionals, setProfessionals] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const [filterPatientId, setFilterPatientId] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
-  const [openMenuId, setOpenMenuId] = useState(null)
+  const [filterCreatedBy, setFilterCreatedBy] = useState('')
+  const [filterOrder, setFilterOrder] = useState('created_at.desc')
+
   const [editorOpen, setEditorOpen] = useState(false)
-  const [templatesOpen, setTemplatesOpen] = useState(false)
-  const [historyReport, setHistoryReport] = useState(null)
-  const [confirmRelease, setConfirmRelease] = useState(null)
-  const [deliveryReport, setDeliveryReport] = useState(null)
-  const [confirmDelete, setConfirmDelete] = useState(null)
-  const [deleteConfirmText, setDeleteConfirmText] = useState('')
-  const [preview, setPreview] = useState(false)
+  const [viewerReport, setViewerReport] = useState(null)
   const [editor, setEditor] = useState(emptyEditor)
+  const [page, setPage] = useState(1)
 
-  const filteredReports = useMemo(() => {
-    return reports.filter((report) => {
-      const matchesSearch = [report.patient, report.type]
-        .join(' ')
-        .toLowerCase()
-        .includes(search.toLowerCase())
-      const matchesStatus = !filterStatus || report.status === filterStatus
+  const patientOptions = useMemo(
+    () =>
+      patients.map((patient) => ({
+        id: String(patient.id || ''),
+        name: patient.name || patient.full_name || patient.nome || 'Paciente',
+      })),
+    [patients],
+  )
 
-      return matchesSearch && matchesStatus
-    })
-  }, [filterStatus, reports, search])
+  const professionalOptions = useMemo(() => {
+    const seen = new Set()
 
-  const stats = [
-    { label: 'Rascunhos', status: 'rascunho' },
-    { label: 'Finalizados', status: 'finalizado' },
-    { label: 'Enviados', status: 'enviado' },
-  ].map((stat) => ({
-    ...stat,
-    value: reports.filter((report) => report.status === stat.status).length,
-  }))
+    return professionals
+      .map((professional) => {
+        const createdByValue = String(professional.userId || professional.id || '')
+        return {
+          id: String(professional.id || ''),
+          createdByValue,
+          name: professional.name || 'Medico(a)',
+        }
+      })
+      .filter((professional) => {
+        if (!professional.createdByValue || seen.has(professional.createdByValue)) {
+          return false
+        }
 
-  function openNew(template = null) {
+        seen.add(professional.createdByValue)
+        return true
+      })
+  }, [professionals])
+
+  const patientNameById = useMemo(
+    () => Object.fromEntries(patientOptions.map((patient) => [patient.id, patient.name])),
+    [patientOptions],
+  )
+
+  const professionalNameByCreatedBy = useMemo(
+    () => Object.fromEntries(professionalOptions.map((professional) => [professional.createdByValue, professional.name])),
+    [professionalOptions],
+  )
+
+  const enrichedReports = useMemo(
+    () =>
+      reports.map((report) => ({
+        ...report,
+        patientName: patientNameById[String(report.patientId || '')] || 'Paciente nao encontrado',
+        createdByName: professionalNameByCreatedBy[String(report.createdBy || '')] || report.createdBy || 'Sistema',
+      })),
+    [patientNameById, professionalNameByCreatedBy, reports],
+  )
+
+  const stats = useMemo(
+    () => [
+      { label: 'Total', value: enrichedReports.length, className: 'text-[#e5e5e5]' },
+      {
+        label: 'Rascunhos',
+        value: enrichedReports.filter((report) => report.status === 'draft').length,
+        className: statusConfig.draft.stat,
+      },
+    ],
+    [enrichedReports],
+  )
+
+  const totalPages = Math.max(1, Math.ceil(enrichedReports.length / ITEMS_PER_PAGE))
+  const currentPage = Math.min(page, totalPages)
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+  const paginatedReports = enrichedReports.slice(startIndex, startIndex + ITEMS_PER_PAGE)
+
+  const loadReports = useCallback(async () => {
+    setLoading(true)
+    setError('')
+
+    try {
+      const data = await reportRepository.getInitialReports({
+        patientId: filterPatientId || undefined,
+        status: filterStatus || undefined,
+        createdBy: filterCreatedBy || undefined,
+        order: filterOrder,
+      })
+
+      setReports(data)
+      setPage(1)
+    } catch (loadError) {
+      console.error(loadError)
+      setError(loadError.message || 'Erro ao carregar relatorios medicos.')
+      setReports([])
+      setPage(1)
+    } finally {
+      setLoading(false)
+    }
+  }, [filterCreatedBy, filterOrder, filterPatientId, filterStatus])
+
+  useEffect(() => {
+    let active = true
+
+    Promise.all([
+      patientRepository.getAll(),
+      professionalRepository.getAll(),
+    ])
+      .then(([patientData, professionalData]) => {
+        if (!active) return
+        setPatients(patientData || [])
+        setProfessionals(professionalData || [])
+      })
+      .catch((loadError) => {
+        if (!active) return
+        console.error(loadError)
+        setError(loadError.message || 'Erro ao carregar dados auxiliares.')
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    loadReports()
+  }, [loadReports])
+
+  function openNew() {
     setEditor({
       ...emptyEditor,
-      type: template?.type || emptyEditor.type,
-      content: template?.content || '',
+      patientId: patientOptions[0]?.id || '',
     })
-    setPreview(false)
-    setTemplatesOpen(false)
     setEditorOpen(true)
   }
 
   function openEdit(report) {
     setEditor({
       id: report.id,
-      type: report.type,
-      patient: report.patient,
-      doctor: report.doctor,
-      content: report.content,
-      showDate: report.showDate,
-      signDigital: report.signDigital,
+      patientId: String(report.patientId || ''),
+      status: report.status,
+      exam: report.exam,
+      requestedBy: report.requestedBy,
+      cidCode: report.cidCode,
+      diagnosis: report.diagnosis,
+      conclusion: report.conclusion,
+      contentHtml: report.contentHtml,
+      contentJson: report.contentJson,
+      hideDate: report.hideDate,
+      hideSignature: report.hideSignature,
+      dueAt: toDateTimeLocal(report.dueAt),
     })
-    setOpenMenuId(null)
-    setPreview(false)
     setEditorOpen(true)
   }
 
-  function saveReport(status) {
-    if (!editor.patient.trim() || !editor.content.trim()) {
-      return
+  async function handleSave() {
+    if (!editor.patientId) return
+
+    setSaving(true)
+
+    const payload = {
+      patientId: editor.patientId,
+      status: editor.status,
+      exam: editor.exam,
+      requestedBy: editor.requestedBy,
+      cidCode: editor.cidCode,
+      diagnosis: editor.diagnosis,
+      conclusion: editor.conclusion,
+      contentHtml: editor.contentHtml,
+      contentJson: editor.contentJson,
+      hideDate: editor.hideDate,
+      hideSignature: editor.hideSignature,
+      dueAt: editor.dueAt ? new Date(editor.dueAt).toISOString() : '',
     }
 
-    const date = new Date().toLocaleDateString('pt-BR')
-    setReports((currentReports) => {
+    try {
       if (editor.id) {
-        return currentReports.map((report) =>
-          report.id === editor.id
-            ? {
-                ...report,
-                type: editor.type,
-                patient: editor.patient,
-                doctor: editor.doctor,
-                content: editor.content,
-                showDate: editor.showDate,
-                signDigital: editor.signDigital,
-                status,
-                versions: [
-                  ...report.versions,
-                  {
-                    version: report.versions.length + 1,
-                    action: status === 'finalizado' ? 'Liberado' : 'Rascunho',
-                    user: currentUser,
-                    summary: status === 'finalizado' ? 'Laudo liberado' : 'Rascunho salvo',
-                  },
-                ],
-              }
-            : report,
-        )
+        await reportRepository.update(editor.id, payload)
+      } else {
+        await reportRepository.create(payload)
       }
 
-      return [
-        {
-          id: `report-${Date.now()}`,
-          type: editor.type,
-          patient: editor.patient,
-          doctor: editor.doctor,
-          date,
-          status,
-          content: editor.content,
-          showDate: editor.showDate,
-          signDigital: editor.signDigital,
-          versions: [
-            { version: 1, action: 'Criado', user: currentUser, summary: 'Laudo criado localmente' },
-            {
-              version: 2,
-              action: status === 'finalizado' ? 'Liberado' : 'Rascunho',
-              user: currentUser,
-              summary: status === 'finalizado' ? 'Laudo liberado' : 'Rascunho salvo',
-            },
-          ],
-        },
-        ...currentReports,
-      ]
-    })
-    setEditorOpen(false)
-  }
-
-  function releaseReport(reportId) {
-    setReports((currentReports) =>
-      currentReports.map((report) =>
-        report.id === reportId
-          ? {
-              ...report,
-              status: 'finalizado',
-              versions: [
-                ...report.versions,
-                { version: report.versions.length + 1, action: 'Liberado', user: currentUser, summary: 'Laudo liberado' },
-              ],
-            }
-          : report,
-      ),
-    )
-    setConfirmRelease(null)
-  }
-
-  function sendReport(reportId) {
-    setReports((currentReports) =>
-      currentReports.map((report) =>
-        report.id === reportId
-          ? {
-              ...report,
-              status: 'enviado',
-              versions: [
-                ...report.versions,
-                { version: report.versions.length + 1, action: 'Enviado', user: currentUser, summary: 'Laudo enviado ao paciente' },
-              ],
-            }
-          : report,
-      ),
-    )
-    setOpenMenuId(null)
-  }
-
-  function deleteReport(reportId) {
-    setReports((currentReports) => currentReports.filter((report) => report.id !== reportId))
-    setConfirmDelete(null)
-    setDeleteConfirmText('')
+      setEditorOpen(false)
+      await loadReports()
+    } catch (saveError) {
+      alert(saveError.message || 'Erro ao salvar relatorio medico.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 text-[#e5e5e5]">
       <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#e5e5e5]">Gestão de Laudos</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-[#e5e5e5]">Relatorios medicos</h1>
+          <p className="mt-1 text-sm text-[#a3a3a3]">Consulta, criacao e edicao de relatorios medicos.</p>
         </div>
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-          <button
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#404040] bg-[#262626] px-4 text-sm font-medium text-[#e5e5e5] transition hover:bg-[#2a2a2a]"
-            onClick={() => setTemplatesOpen(true)}
-            type="button"
-          >
-            <ReportIcon className="size-4 text-[#3b82f6]" name="template" />
-            Templates
-          </button>
-          <button
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#3b82f6] px-4 text-sm font-medium text-white transition hover:bg-[#2563eb]"
-            onClick={() => openNew()}
-            type="button"
-          >
-            <ReportIcon name="plus" />
-            Novo Laudo
-          </button>
-        </div>
+        <button
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#3b82f6] px-4 text-sm font-medium text-white transition hover:bg-[#2563eb]"
+          onClick={openNew}
+          type="button"
+        >
+          <ReportIcon name="plus" />
+          Novo relatorio
+        </button>
       </div>
 
       <section className="grid gap-4 md:grid-cols-3">
         {stats.map((stat) => (
-          <div className={`${cardClass} p-4`} key={stat.status}>
-            <p className="text-xs font-semibold text-[#a3a3a3]">{stat.label}</p>
-            <p className={`mt-1 text-2xl font-bold ${statusConfig[stat.status].stat}`}>{stat.value}</p>
+          <div className={cardClass} key={stat.label}>
+            <div className="p-4">
+              <p className="text-xs font-semibold text-[#a3a3a3]">{stat.label}</p>
+              <p className={`mt-1 text-2xl font-bold ${stat.className}`}>{stat.value}</p>
+            </div>
           </div>
         ))}
       </section>
 
       <section className={`${cardClass} p-6`}>
-        <div className="mb-6 flex flex-col gap-4 md:flex-row">
-          <div className="relative flex-1">
-            <ReportIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#a3a3a3]" name="search" />
-            <input
-              className="h-10 w-full rounded-none border border-[#404040] bg-[#1a1a1a] py-2 pl-10 pr-3 text-sm text-[#e5e5e5] outline-none transition placeholder:text-[#a3a3a3] focus:border-[#3b82f6] focus:ring-1 focus:ring-[#3b82f6]"
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Buscar por paciente ou tipo..."
-              value={search}
-            />
-          </div>
-          <select
-            className="h-10 rounded-none border border-[#404040] bg-[#1a1a1a] px-3 text-sm font-semibold text-[#e5e5e5] outline-none transition focus:border-[#3b82f6] focus:ring-1 focus:ring-[#3b82f6]"
-            onChange={(event) => setFilterStatus(event.target.value)}
-            value={filterStatus}
-          >
-            <option value="">Todos os Status</option>
-            <option value="rascunho">Rascunho</option>
-            <option value="finalizado">Finalizado</option>
-            <option value="enviado">Enviado</option>
-          </select>
+        <div className="mb-6 grid gap-4 lg:grid-cols-4">
+          <FilterField label="Paciente">
+            <select
+              className={inputClass}
+              onChange={(event) => {
+                setFilterPatientId(event.target.value)
+                setPage(1)
+              }}
+              value={filterPatientId}
+            >
+              <option value="">Todos os pacientes</option>
+              {patientOptions.map((patient) => (
+                <option key={patient.id} value={patient.id}>
+                  {patient.name}
+                </option>
+              ))}
+            </select>
+          </FilterField>
+
+          <FilterField label="Status">
+            <select
+              className={inputClass}
+              onChange={(event) => {
+                setFilterStatus(event.target.value)
+                setPage(1)
+              }}
+              value={filterStatus}
+            >
+              <option value="">Todos os status</option>
+              <option value="draft">Rascunho</option>
+            </select>
+          </FilterField>
+
+          <FilterField label="Criado por">
+            <select
+              className={inputClass}
+              onChange={(event) => {
+                setFilterCreatedBy(event.target.value)
+                setPage(1)
+              }}
+              value={filterCreatedBy}
+            >
+              <option value="">Todos os autores</option>
+              {professionalOptions.map((professional) => (
+                <option key={professional.createdByValue} value={professional.createdByValue}>
+                  {professional.name}
+                </option>
+              ))}
+            </select>
+          </FilterField>
+
+          <FilterField label="Ordenacao">
+            <select
+              className={inputClass}
+              onChange={(event) => {
+                setFilterOrder(event.target.value)
+                setPage(1)
+              }}
+              value={filterOrder}
+            >
+              {orderOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </FilterField>
         </div>
 
-        <div className="overflow-x-auto rounded-none border border-[#404040]">
-          <table className="w-full whitespace-nowrap text-left text-sm">
+        {error ? (
+          <div className="mb-6 rounded-xl border border-[#7f1d1d] bg-[#2a1111] px-4 py-3 text-sm text-[#fecaca]">
+            {error}
+          </div>
+        ) : null}
+
+        <div className="overflow-x-auto rounded-xl border border-[#404040]">
+          <table className="w-full min-w-full table-fixed text-left text-sm">
             <thead className="bg-[#171717] text-xs font-semibold uppercase text-[#a3a3a3]">
               <tr>
-                <th className="px-4 py-3">Tipo</th>
-                <th className="px-4 py-3">Paciente</th>
-                <th className="px-4 py-3">Médico</th>
-                <th className="px-4 py-3">Data</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Versões</th>
-                <th className="px-4 py-3 text-right">Ações</th>
+                <th className="w-[12%] px-4 py-3">Numero</th>
+                <th className="w-[20%] px-4 py-3">Exame</th>
+                <th className="w-[18%] px-4 py-3">Paciente</th>
+                <th className="w-[18%] px-4 py-3">Solicitante</th>
+                <th className="w-[14%] px-4 py-3">Criado em</th>
+                <th className="w-[10%] px-4 py-3">Status</th>
+                <th className="sticky right-0 w-[8.5rem] bg-[#171717] px-4 py-3 text-right">Acoes</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#404040] bg-[#262626]">
-              {filteredReports.length ? (
-                filteredReports.map((report) => (
+              {loading ? (
+                <tr>
+                  <td className="px-4 py-8 text-center text-sm text-[#a3a3a3]" colSpan={7}>
+                    Carregando relatorios medicos...
+                  </td>
+                </tr>
+              ) : paginatedReports.length ? (
+                paginatedReports.map((report) => (
                   <ReportRow
                     key={report.id}
-                    onDelete={() => {
-                      setConfirmDelete({ report })
-                      setDeleteConfirmText('')
-                      setOpenMenuId(null)
-                    }}
-                    onDelivery={() => {
-                      setDeliveryReport(report)
-                      setOpenMenuId(null)
-                    }}
                     onEdit={() => openEdit(report)}
-                    onHistory={() => {
-                      setHistoryReport(report)
-                      setOpenMenuId(null)
-                    }}
-                    onPrint={() => {
-                      window.print()
-                      setOpenMenuId(null)
-                    }}
-                    onRelease={() => {
-                      setConfirmRelease(report)
-                      setOpenMenuId(null)
-                    }}
-                    onSend={() => sendReport(report.id)}
-                    open={openMenuId === report.id}
+                    onView={() => setViewerReport(report)}
                     report={report}
-                    setOpenMenuId={setOpenMenuId}
                   />
                 ))
               ) : (
                 <tr>
                   <td className="px-4 py-8 text-center text-sm text-[#a3a3a3]" colSpan={7}>
-                    Nenhum laudo encontrado.
+                    Nenhum relatorio encontrado com os filtros atuais.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+
+        <div className="mt-4 flex flex-col gap-4 border-t border-[#404040] pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-[#a3a3a3]">
+            Mostrando {enrichedReports.length ? startIndex + 1 : 0}-{Math.min(startIndex + ITEMS_PER_PAGE, enrichedReports.length)} de{' '}
+            {enrichedReports.length} relatorios
+          </p>
+          <div className="flex items-center gap-2">
+            <PageButton disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>
+              <ReportIcon className="size-4" name="chevron-left" />
+            </PageButton>
+            {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => (
+              <button
+                className={`grid size-8 place-items-center rounded-lg text-xs font-medium transition ${
+                  pageNumber === currentPage
+                    ? 'bg-[#3b82f6] text-white'
+                    : 'border border-[#404040] bg-[#1a1a1a] text-[#a3a3a3] hover:bg-[#333333]'
+                }`}
+                key={pageNumber}
+                onClick={() => setPage(pageNumber)}
+                type="button"
+              >
+                {pageNumber}
+              </button>
+            ))}
+            <PageButton disabled={currentPage === totalPages} onClick={() => setPage(currentPage + 1)}>
+              <ReportIcon className="size-4" name="chevron-right" />
+            </PageButton>
+          </div>
+        </div>
       </section>
 
-      {templatesOpen ? <TemplatesModal onClose={() => setTemplatesOpen(false)} onUseTemplate={openNew} /> : null}
-      {historyReport ? <HistoryModal onClose={() => setHistoryReport(null)} report={historyReport} /> : null}
-      {deliveryReport ? <DeliveryModal onClose={() => setDeliveryReport(null)} report={deliveryReport} /> : null}
-      {confirmRelease ? (
-        <ConfirmReleaseModal
-          onClose={() => setConfirmRelease(null)}
-          onConfirm={() => releaseReport(confirmRelease.id)}
-          report={confirmRelease}
-        />
-      ) : null}
-      {confirmDelete ? (
-        <DeleteModal
-          confirmText={deleteConfirmText}
-          onClose={() => setConfirmDelete(null)}
-          onConfirm={() => deleteReport(confirmDelete.report.id)}
-          report={confirmDelete.report}
-          setConfirmText={setDeleteConfirmText}
-        />
-      ) : null}
       {editorOpen ? (
         <ReportEditorModal
           editor={editor}
+          onChange={setEditor}
           onClose={() => setEditorOpen(false)}
-          onSave={saveReport}
-          preview={preview}
-          setEditor={setEditor}
-          setPreview={setPreview}
+          onSave={handleSave}
+          patientOptions={patientOptions}
+          professionalOptions={professionalOptions}
+          saving={saving}
         />
+      ) : null}
+
+      {viewerReport ? (
+        <ReportViewModal onClose={() => setViewerReport(null)} report={viewerReport} />
       ) : null}
     </div>
   )
 }
 
-function ReportRow({
-  onDelete,
-  onDelivery,
-  onEdit,
-  onHistory,
-  onPrint,
-  onRelease,
-  onSend,
-  open,
-  report,
-  setOpenMenuId,
-}) {
+function ReportRow({ onEdit, onView, report }) {
   return (
     <tr className="transition hover:bg-[#303030]">
-      <td className="px-4 py-3">
+      <td className="px-4 py-3 align-top text-[#a3a3a3]">{report.orderNumber || '-'}</td>
+      <td className="px-4 py-3 align-top">
         <div className="flex items-center gap-2">
-          <ReportIcon className="size-4 text-[#3b82f6]" name="file" />
-          <span className="font-medium text-[#e5e5e5]">{report.type}</span>
+          <ReportIcon className="mt-0.5 size-4 shrink-0 text-[#3b82f6]" name="file" />
+          <span className="whitespace-normal break-words font-medium text-[#e5e5e5]">{report.exam || 'Sem exame'}</span>
         </div>
       </td>
-      <td className="px-4 py-3 text-[#e5e5e5]">{report.patient}</td>
-      <td className="px-4 py-3 text-[#a3a3a3]">{report.doctor}</td>
-      <td className="px-4 py-3 text-[#a3a3a3]">{report.date}</td>
-      <td className="px-4 py-3">
+      <td className="px-4 py-3 align-top whitespace-normal break-words text-[#e5e5e5]">{report.patientName}</td>
+      <td className="px-4 py-3 align-top whitespace-normal break-words text-[#a3a3a3]">{report.requestedBy || '-'}</td>
+      <td className="px-4 py-3 align-top text-[#a3a3a3]">{formatDate(report.createdAt)}</td>
+      <td className="px-4 py-3 align-top">
         <span className={`rounded px-2 py-1 text-[10px] font-bold ${statusConfig[report.status].pill}`}>
           {statusConfig[report.status].label}
         </span>
       </td>
-      <td className="px-4 py-3">
-        <button
-          className="inline-flex items-center gap-1.5 rounded-md bg-[#2a2a2a] px-2 py-1 text-xs font-medium text-[#a3a3a3] transition hover:bg-[#3b82f6]/10 hover:text-[#3b82f6]"
-          onClick={onHistory}
-          title="Ver histórico de versões"
-          type="button"
-        >
-          <ReportIcon className="size-3.5" name="history" />
-          v{report.versions.length}
-        </button>
-      </td>
-      <td className="relative px-4 py-3 text-right">
-        <button
-          aria-label={`Ações de ${report.type} de ${report.patient}`}
-          className="rounded p-1 text-[#a3a3a3] transition hover:bg-[#2a2a2a] hover:text-[#e5e5e5]"
-          onClick={() => setOpenMenuId(open ? null : report.id)}
-          type="button"
-        >
-          <ReportIcon className="size-5" name="more" />
-        </button>
-        {open ? (
-          <>
-            <button
-              aria-label="Fechar menu"
-              className="fixed inset-0 z-10 cursor-default"
-              onClick={() => setOpenMenuId(null)}
-              type="button"
-            />
-            <div className="absolute right-8 top-10 z-20 w-56 rounded-lg border border-[#404040] bg-[#303030] py-1 text-left shadow-lg">
-              <MenuItem icon="edit" label="Editar" onClick={onEdit} />
-              <MenuItem icon="history" label="Histórico de Versões" onClick={onHistory} />
-              <MenuItem icon="printer" label="Imprimir" onClick={onPrint} />
-              {(report.status === 'finalizado' || report.status === 'enviado') ? (
-                <MenuItem icon="clipboard" label="Protocolo de Entrega" onClick={onDelivery} />
-              ) : null}
-              <div className="my-1 border-t border-[#404040]" />
-              {report.status === 'rascunho' ? <MenuItem icon="check" label="Liberar Laudo" onClick={onRelease} tone="green" /> : null}
-              {report.status === 'finalizado' ? <MenuItem icon="send" label="Enviar ao Paciente" onClick={onSend} tone="blue" /> : null}
-              <div className="my-1 border-t border-[#404040]" />
-              {canDelete(report) ? (
-                <MenuItem icon="trash" label="Excluir" onClick={onDelete} tone="danger" />
-              ) : (
-                <div className="flex w-full cursor-not-allowed items-center gap-2 px-4 py-2 text-sm text-[#737373]">
-                  <ReportIcon className="size-4" name="shield-off" />
-                  Excluir
-                  <span className="ml-auto rounded bg-[#2a2a2a] px-1.5 py-0.5 text-[10px]">Sem permissão</span>
-                </div>
-              )}
-            </div>
-          </>
-        ) : null}
+      <td className="sticky right-0 bg-[#262626] px-4 py-3 text-right shadow-[-10px_0_12px_-12px_rgba(0,0,0,0.75)]">
+        <div className="flex justify-end gap-2">
+          <IconButton label="Visualizar" name="eye" onClick={onView} />
+          <IconButton label="Editar" name="edit" onClick={onEdit} />
+        </div>
       </td>
     </tr>
   )
 }
 
-function ReportEditorModal({ editor, onClose, onSave, preview, setEditor, setPreview }) {
-  const isValid = editor.patient.trim() && editor.content.trim()
+function ReportEditorModal({ editor, onChange, onClose, onSave, patientOptions, professionalOptions, saving }) {
+  const isValid = Boolean(editor.patientId)
+
+  function updateField(field, value) {
+    onChange((current) => ({ ...current, [field]: value }))
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
@@ -449,102 +479,132 @@ function ReportEditorModal({ editor, onClose, onSave, preview, setEditor, setPre
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-[#404040] px-6 py-4">
-          <h2 className="text-lg font-bold text-[#e5e5e5]">{editor.id ? 'Editar Laudo' : 'Novo Laudo'}</h2>
-          <div className="flex items-center gap-2">
-            <button
-              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition ${
-                preview
-                  ? 'border-[#3b82f6] bg-[#3b82f6]/10 text-[#3b82f6]'
-                  : 'border-[#404040] text-[#a3a3a3] hover:bg-[#2a2a2a]'
-              }`}
-              onClick={() => setPreview((current) => !current)}
-              type="button"
-            >
-              <ReportIcon className="size-3.5" name="eye" />
-              {preview ? 'Editar' : 'Pré-visualizar'}
-            </button>
-            <button className="rounded-lg p-1.5 transition hover:bg-[#2a2a2a]" onClick={onClose} type="button">
-              <ReportIcon className="size-4 text-[#a3a3a3]" name="x" />
-            </button>
-          </div>
+          <h2 className="text-lg font-bold text-[#e5e5e5]">
+            {editor.id ? 'Editar relatorio medico' : 'Novo relatorio medico'}
+          </h2>
+          <button className="rounded-lg p-1.5 transition hover:bg-[#2a2a2a]" onClick={onClose} type="button">
+            <ReportIcon className="size-4 text-[#a3a3a3]" name="x" />
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
-          {preview ? (
-            <div className="min-h-[400px] rounded-xl bg-white p-8 text-gray-900 shadow-inner">
-              <div className="mb-6 border-b border-gray-200 pb-4 text-center">
-                <h3 className="text-xl font-bold">{editor.type}</h3>
-                {editor.showDate ? <p className="mt-1 text-sm text-gray-500">{new Date().toLocaleDateString('pt-BR')}</p> : null}
-              </div>
-              <p className="text-sm"><strong>Paciente:</strong> {editor.patient || '-'}</p>
-              <p className="mt-1 text-sm"><strong>Médico(a):</strong> {editor.doctor}</p>
-              <p className="mt-6 whitespace-pre-wrap text-sm leading-6">
-                {editor.content || 'Nenhum conteúdo inserido.'}
-              </p>
-              {editor.signDigital ? (
-                <div className="mt-12 border-t border-gray-200 pt-6 text-center">
-                  <p className="text-sm font-medium text-gray-700">{editor.doctor}</p>
-                  <p className="mt-1 text-xs text-gray-400">Assinatura Digital - MediConnect</p>
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <DarkField label="Tipo de Laudo *">
-                  <select className={inputClass} onChange={(event) => setEditorValue(setEditor, 'type', event.target.value)} value={editor.type}>
-                    {reportTypes.map((type) => (
-                      <option key={type}>{type}</option>
-                    ))}
-                  </select>
-                </DarkField>
-                <DarkField label="Paciente *">
-                  <input
-                    className={inputClass}
-                    onChange={(event) => setEditorValue(setEditor, 'patient', event.target.value)}
-                    placeholder="Digite o nome do paciente..."
-                    value={editor.patient}
-                  />
-                </DarkField>
-              </div>
-              <DarkField label="Médico Responsável">
-                <select className={inputClass} onChange={(event) => setEditorValue(setEditor, 'doctor', event.target.value)} value={editor.doctor}>
-                  {doctors.map((doctor) => (
-                    <option key={doctor}>{doctor}</option>
+          <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <DarkField label="Paciente *">
+                <select className={inputClass} onChange={(event) => updateField('patientId', event.target.value)} value={editor.patientId}>
+                  <option value="">Selecione um paciente</option>
+                  {patientOptions.map((patient) => (
+                    <option key={patient.id} value={patient.id}>
+                      {patient.name}
+                    </option>
                   ))}
                 </select>
               </DarkField>
-              <DarkField label="Conteúdo *">
-                <textarea
-                  className={`${inputClass} min-h-72 py-3 leading-6`}
-                  onChange={(event) => setEditorValue(setEditor, 'content', event.target.value)}
-                  placeholder="Digite o conteúdo do laudo aqui..."
-                  value={editor.content}
+
+              <DarkField label="Status">
+                <select className={inputClass} onChange={(event) => updateField('status', event.target.value)} value={editor.status}>
+                  <option value="draft">Rascunho</option>
+                </select>
+              </DarkField>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <DarkField label="Exame">
+                <input
+                  className={inputClass}
+                  onChange={(event) => updateField('exam', event.target.value)}
+                  placeholder="Nome do exame"
+                  value={editor.exam}
                 />
               </DarkField>
-              <div className="flex flex-wrap items-center gap-6">
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-[#e5e5e5]">
+
+              <DarkField label="Solicitante">
+                <div>
                   <input
-                    checked={editor.showDate}
-                    className="size-4 accent-[#3b82f6]"
-                    onChange={(event) => setEditorValue(setEditor, 'showDate', event.target.checked)}
-                    type="checkbox"
+                    className={inputClass}
+                    list="report-requested-by-suggestions"
+                    onChange={(event) => updateField('requestedBy', event.target.value)}
+                    placeholder="Nome do solicitante"
+                    value={editor.requestedBy}
                   />
-                  Exibir data no laudo
-                </label>
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-[#e5e5e5]">
-                  <input
-                    checked={editor.signDigital}
-                    className="size-4 accent-[#3b82f6]"
-                    onChange={(event) => setEditorValue(setEditor, 'signDigital', event.target.checked)}
-                    type="checkbox"
-                  />
-                  Incluir assinatura digital
-                </label>
-              </div>
-              {!isValid ? <p className="text-xs text-amber-400">* Preencha o paciente e o conteúdo do laudo para salvar.</p> : null}
+                  <datalist id="report-requested-by-suggestions">
+                    {professionalOptions.map((professional) => (
+                      <option key={professional.id} value={professional.name} />
+                    ))}
+                  </datalist>
+                </div>
+              </DarkField>
             </div>
-          )}
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <DarkField label="CID-10">
+                <input
+                  className={inputClass}
+                  onChange={(event) => updateField('cidCode', event.target.value)}
+                  placeholder="Ex: Z01.7"
+                  value={editor.cidCode}
+                />
+              </DarkField>
+
+              <DarkField label="Prazo">
+                <input
+                  className={`${inputClass} [color-scheme:dark]`}
+                  onChange={(event) => updateField('dueAt', event.target.value)}
+                  type="datetime-local"
+                  value={editor.dueAt}
+                />
+              </DarkField>
+            </div>
+
+            <DarkField label="Diagnostico">
+              <textarea
+                className={textareaClass}
+                onChange={(event) => updateField('diagnosis', event.target.value)}
+                placeholder="Diagnostico do relatorio"
+                value={editor.diagnosis}
+              />
+            </DarkField>
+
+            <DarkField label="Conclusao">
+              <textarea
+                className={textareaClass}
+                onChange={(event) => updateField('conclusion', event.target.value)}
+                placeholder="Conclusao do relatorio"
+                value={editor.conclusion}
+              />
+            </DarkField>
+
+            <DarkField label="Conteudo HTML">
+              <textarea
+                className={`${textareaClass} min-h-72`}
+                onChange={(event) => updateField('contentHtml', event.target.value)}
+                placeholder="<p>Conteudo do relatorio</p>"
+                value={editor.contentHtml}
+              />
+            </DarkField>
+
+            <div className="flex flex-wrap items-center gap-6">
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-[#e5e5e5]">
+                <input
+                  checked={editor.hideDate}
+                  className="size-4 accent-[#3b82f6]"
+                  onChange={(event) => updateField('hideDate', event.target.checked)}
+                  type="checkbox"
+                />
+                Ocultar data
+              </label>
+
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-[#e5e5e5]">
+                <input
+                  checked={editor.hideSignature}
+                  className="size-4 accent-[#3b82f6]"
+                  onChange={(event) => updateField('hideSignature', event.target.checked)}
+                  type="checkbox"
+                />
+                Ocultar assinatura
+              </label>
+            </div>
+          </div>
         </div>
 
         <div className="flex items-center justify-between border-t border-[#404040] px-6 py-4">
@@ -555,192 +615,14 @@ function ReportEditorModal({ editor, onClose, onSave, preview, setEditor, setPre
           >
             Cancelar
           </button>
-          <div className="flex gap-3">
-            <button
-              className="rounded-lg border border-[#404040] bg-[#2a2a2a] px-4 py-2 text-sm font-medium text-[#e5e5e5] transition hover:bg-[#333333] disabled:cursor-not-allowed disabled:opacity-40"
-              disabled={!isValid}
-              onClick={() => onSave('rascunho')}
-              type="button"
-            >
-              Salvar Rascunho
-            </button>
-            <button
-              className="inline-flex items-center gap-2 rounded-lg bg-[#3b82f6] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#2563eb] disabled:cursor-not-allowed disabled:opacity-40"
-              disabled={!isValid}
-              onClick={() => onSave('finalizado')}
-              type="button"
-            >
-              <ReportIcon className="size-3.5" name="lock" />
-              Liberar Laudo
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function TemplatesModal({ onClose, onUseTemplate }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div
-        className="w-full max-w-3xl rounded-2xl border border-[#404040] bg-[#262626] p-6 shadow-xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="mb-5 flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-[#e5e5e5]">Templates de Laudo</h2>
-            <p className="mt-1 text-xs text-[#a3a3a3]">Modelos locais para acelerar a escrita do laudo.</p>
-          </div>
-          <button className="rounded-lg p-1.5 transition hover:bg-[#2a2a2a]" onClick={onClose} type="button">
-            <ReportIcon className="size-4 text-[#a3a3a3]" name="x" />
-          </button>
-        </div>
-        <div className="grid gap-3 md:grid-cols-3">
-          {templates.map((template) => (
-            <button
-              className="rounded-xl border border-[#404040] bg-[#1a1a1a] p-4 text-left transition hover:border-[#3b82f6]/50 hover:bg-[#2a2a2a]"
-              key={template.id}
-              onClick={() => onUseTemplate(template)}
-              type="button"
-            >
-              <p className="text-sm font-bold text-[#e5e5e5]">{template.name}</p>
-              <p className="mt-1 text-xs font-medium text-[#3b82f6]">{template.type}</p>
-              <p className="mt-3 text-xs leading-5 text-[#a3a3a3]">{template.description}</p>
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function HistoryModal({ onClose, report }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div
-        className="w-full max-w-2xl rounded-2xl border border-[#404040] bg-[#262626] p-6 shadow-xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="mb-5 flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-[#e5e5e5]">Histórico de Versões</h2>
-            <p className="mt-1 text-xs text-[#a3a3a3]">{report.type} - {report.patient}</p>
-          </div>
-          <button className="rounded-lg p-1.5 transition hover:bg-[#2a2a2a]" onClick={onClose} type="button">
-            <ReportIcon className="size-4 text-[#a3a3a3]" name="x" />
-          </button>
-        </div>
-        <div className="space-y-3">
-          {[...report.versions].reverse().map((version) => (
-            <div className="rounded-xl border border-[#404040] bg-[#1a1a1a] p-4" key={version.version}>
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-bold text-[#e5e5e5]">v{version.version} - {version.action}</p>
-                <p className="text-xs text-[#a3a3a3]">{version.user}</p>
-              </div>
-              <p className="mt-2 text-xs text-[#a3a3a3]">{version.summary}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ConfirmReleaseModal({ onClose, onConfirm, report }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-sm rounded-2xl border border-[#404040] bg-[#262626] p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
-        <div className="mb-4 flex items-center gap-3">
-          <div className="rounded-lg bg-emerald-500/10 p-2 text-emerald-400">
-            <ReportIcon className="size-5" name="check" />
-          </div>
-          <div>
-            <h3 className="text-sm font-bold text-[#e5e5e5]">Liberar Laudo?</h3>
-            <p className="mt-0.5 text-xs text-[#a3a3a3]">{report.type} - {report.patient}</p>
-          </div>
-        </div>
-        <p className="mb-5 text-sm leading-6 text-[#a3a3a3]">
-          Ao liberar, o laudo ficará com status <strong className="text-emerald-400">Finalizado</strong> e poderá ser impresso ou enviado.
-        </p>
-        <div className="flex justify-end gap-3">
-          <button className="rounded-lg border border-[#404040] px-4 py-2 text-sm text-[#e5e5e5] transition hover:bg-[#2a2a2a]" onClick={onClose} type="button">
-            Cancelar
-          </button>
-          <button className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-600" onClick={onConfirm} type="button">
-            Confirmar Liberação
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function DeliveryModal({ onClose, report }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl border border-[#404040] bg-[#262626] p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
-        <h2 className="text-lg font-bold text-[#e5e5e5]">Protocolo de Entrega</h2>
-        <p className="mt-2 text-sm leading-6 text-[#a3a3a3]">
-          Entrega mockada para {report.patient}, referente a {report.type} de {report.date}.
-        </p>
-        <div className="mt-5 grid gap-3">
-          <DarkField label="Canal">
-            <select className={inputClass} defaultValue="Portal do paciente">
-              <option>Portal do paciente</option>
-              <option>E-mail</option>
-              <option>Impresso</option>
-            </select>
-          </DarkField>
-          <DarkField label="Observação">
-            <textarea className={`${inputClass} min-h-20 py-2`} placeholder="Observação local do protocolo..." />
-          </DarkField>
-        </div>
-        <div className="mt-6 flex justify-end gap-3">
-          <button className="rounded-lg border border-[#404040] px-4 py-2 text-sm text-[#e5e5e5] transition hover:bg-[#2a2a2a]" onClick={onClose} type="button">
-            Cancelar
-          </button>
-          <button className="rounded-lg bg-[#3b82f6] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#2563eb]" onClick={onClose} type="button">
-            Registrar Protocolo
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function DeleteModal({ confirmText, onClose, onConfirm, report, setConfirmText }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-sm rounded-2xl border border-[#404040] bg-[#262626] p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
-        <div className="mb-4 flex items-center gap-3">
-          <div className="rounded-lg bg-[#ef4444]/10 p-2 text-[#ef4444]">
-            <ReportIcon className="size-5" name="trash" />
-          </div>
-          <div>
-            <h3 className="text-sm font-bold text-[#e5e5e5]">Excluir laudo?</h3>
-            <p className="mt-0.5 text-xs text-[#a3a3a3]">{report.type} - {report.patient}</p>
-          </div>
-        </div>
-        <p className="mb-3 text-sm leading-6 text-[#a3a3a3]">Para confirmar, digite EXCLUIR no campo abaixo.</p>
-        <input
-          autoFocus
-          className="mb-4 h-10 w-full rounded-lg border border-[#ef4444]/40 bg-[#1a1a1a] px-3 text-sm text-[#e5e5e5] outline-none focus:border-[#ef4444]"
-          onChange={(event) => setConfirmText(event.target.value)}
-          placeholder="Digite EXCLUIR"
-          value={confirmText}
-        />
-        <div className="flex justify-end gap-3">
-          <button className="rounded-lg border border-[#404040] px-4 py-2 text-sm text-[#e5e5e5] transition hover:bg-[#2a2a2a]" onClick={onClose} type="button">
-            Cancelar
-          </button>
           <button
-            className="rounded-lg bg-[#ef4444] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#dc2626] disabled:cursor-not-allowed disabled:opacity-40"
-            disabled={confirmText !== 'EXCLUIR'}
-            onClick={onConfirm}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#3b82f6] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#2563eb] disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={!isValid || saving}
+            onClick={onSave}
             type="button"
           >
-            Excluir Permanentemente
+            <ReportIcon className="size-3.5" name="save" />
+            {saving ? 'Salvando...' : 'Salvar relatorio'}
           </button>
         </div>
       </div>
@@ -748,19 +630,75 @@ function DeleteModal({ confirmText, onClose, onConfirm, report, setConfirmText }
   )
 }
 
-function MenuItem({ icon, label, onClick, tone = 'default' }) {
-  const colors = {
-    blue: 'text-blue-400 hover:bg-blue-500/10',
-    danger: 'text-[#ef4444] hover:bg-[#ef4444]/10',
-    default: 'text-[#e5e5e5] hover:bg-[#2a2a2a]',
-    green: 'text-emerald-400 hover:bg-emerald-500/10',
-  }
-
+function ReportViewModal({ onClose, report }) {
   return (
-    <button className={`flex w-full items-center gap-2 px-4 py-2 text-sm transition ${colors[tone]}`} onClick={onClick} type="button">
-      <ReportIcon className="size-4" name={icon} />
-      {label}
-    </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div
+        className="flex max-h-[92vh] w-full max-w-4xl flex-col rounded-2xl border border-[#404040] bg-[#262626] shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-[#404040] px-6 py-4">
+          <div>
+            <h2 className="text-lg font-bold text-[#e5e5e5]">Relatorio medico</h2>
+            <p className="mt-1 text-xs text-[#a3a3a3]">{report.orderNumber || 'Sem numero'} </p>
+          </div>
+          <button className="rounded-lg p-1.5 transition hover:bg-[#2a2a2a]" onClick={onClose} type="button">
+            <ReportIcon className="size-4 text-[#a3a3a3]" name="x" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="grid gap-4 md:grid-cols-2">
+            <DetailCard label="Paciente" value={report.patientName} />
+            <DetailCard label="Solicitante" value={report.requestedBy || '-'} />
+            <DetailCard label="Criado em" value={formatDate(report.createdAt)} />
+            <DetailCard label="Criado por" value={report.createdByName} />
+            <DetailCard label="Status" value={statusConfig[report.status].label} />
+            <DetailCard label="Prazo" value={formatDateTime(report.dueAt)} />
+          </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <DetailBlock label="Exame" value={report.exam || '-'} />
+            <DetailBlock label="CID-10" value={report.cidCode || '-'} />
+          </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <DetailBlock label="Diagnostico" value={report.diagnosis || '-'} />
+            <DetailBlock label="Conclusao" value={report.conclusion || '-'} />
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-3 text-xs text-[#a3a3a3]">
+            <span className="rounded-full border border-[#404040] px-3 py-1">
+              {report.hideDate ? 'Data oculta' : 'Data visivel'}
+            </span>
+            <span className="rounded-full border border-[#404040] px-3 py-1">
+              {report.hideSignature ? 'Assinatura oculta' : 'Assinatura visivel'}
+            </span>
+          </div>
+
+          <div className="mt-6 rounded-xl border border-[#404040] bg-[#1a1a1a] p-5">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#a3a3a3]">Conteudo HTML</p>
+            {report.contentHtml ? (
+              <div
+                className="prose prose-invert max-w-none text-sm text-[#e5e5e5]"
+                dangerouslySetInnerHTML={{ __html: report.contentHtml }}
+              />
+            ) : (
+              <p className="text-sm text-[#a3a3a3]">Nenhum conteudo HTML informado.</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FilterField({ children, label }) {
+  return (
+    <label className="block">
+      <span className={labelClass}>{label}</span>
+      {children}
+    </label>
   )
 }
 
@@ -773,12 +711,82 @@ function DarkField({ children, label }) {
   )
 }
 
-function setEditorValue(setEditor, key, value) {
-  setEditor((currentEditor) => ({ ...currentEditor, [key]: value }))
+function DetailCard({ label, value }) {
+  return (
+    <div className="rounded-xl border border-[#404040] bg-[#1a1a1a] p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-[#a3a3a3]">{label}</p>
+      <p className="mt-2 text-sm text-[#e5e5e5]">{value}</p>
+    </div>
+  )
 }
 
-function canDelete(report) {
-  return adminUsers.includes(currentUser) || (report.status === 'rascunho' && report.doctor === currentUser)
+function DetailBlock({ label, value }) {
+  return (
+    <div className="rounded-xl border border-[#404040] bg-[#1a1a1a] p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-[#a3a3a3]">{label}</p>
+      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#e5e5e5]">{value}</p>
+    </div>
+  )
+}
+
+function IconButton({ label, name, onClick }) {
+  return (
+    <button
+      aria-label={label}
+      className="grid size-9 place-items-center rounded-lg border border-[#404040] bg-[#1a1a1a] text-[#a3a3a3] transition hover:bg-[#2a2a2a] hover:text-[#e5e5e5]"
+      onClick={onClick}
+      title={label}
+      type="button"
+    >
+      <ReportIcon className="size-4" name={name} />
+    </button>
+  )
+}
+
+function PageButton({ children, disabled, onClick }) {
+  return (
+    <button
+      className="grid size-8 place-items-center rounded-lg border border-[#404040] bg-[#1a1a1a] text-[#e5e5e5] transition hover:bg-[#333333] disabled:cursor-not-allowed disabled:opacity-30"
+      disabled={disabled}
+      onClick={onClick}
+      type="button"
+    >
+      {children}
+    </button>
+  )
+}
+
+function formatDate(value) {
+  if (!value) return '-'
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return '-'
+
+  return parsed.toLocaleDateString('pt-BR')
+}
+
+function formatDateTime(value) {
+  if (!value) return '-'
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return '-'
+
+  return parsed.toLocaleString('pt-BR')
+}
+
+function toDateTimeLocal(value) {
+  if (!value) return ''
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return ''
+
+  const year = parsed.getFullYear()
+  const month = String(parsed.getMonth() + 1).padStart(2, '0')
+  const day = String(parsed.getDate()).padStart(2, '0')
+  const hours = String(parsed.getHours()).padStart(2, '0')
+  const minutes = String(parsed.getMinutes()).padStart(2, '0')
+
+  return `${year}-${month}-${day}T${hours}:${minutes}`
 }
 
 function ReportIcon({ className = 'size-4', name }) {
@@ -790,15 +798,6 @@ function ReportIcon({ className = 'size-4', name }) {
     strokeLinejoin: 'round',
     strokeWidth: 1.8,
     viewBox: '0 0 24 24',
-  }
-
-  if (name === 'search') {
-    return (
-      <svg {...common}>
-        <path d="m21 21-4.3-4.3" />
-        <circle cx="11" cy="11" r="7" />
-      </svg>
-    )
   }
 
   if (name === 'plus') {
@@ -818,28 +817,11 @@ function ReportIcon({ className = 'size-4', name }) {
     )
   }
 
-  if (name === 'template') {
+  if (name === 'eye') {
     return (
       <svg {...common}>
-        <path d="M4 5h16M4 12h7M13 12h7M4 19h16" />
-        <path d="M4 5v14M20 5v14M11 12v7M13 12V5" />
-      </svg>
-    )
-  }
-
-  if (name === 'history') {
-    return (
-      <svg {...common}>
-        <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-        <path d="M3 4v4h4M12 7v5l3 2" />
-      </svg>
-    )
-  }
-
-  if (name === 'more') {
-    return (
-      <svg {...common}>
-        <path d="M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2ZM19 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2ZM5 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" />
+        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
+        <circle cx="12" cy="12" r="3" />
       </svg>
     )
   }
@@ -852,65 +834,6 @@ function ReportIcon({ className = 'size-4', name }) {
     )
   }
 
-  if (name === 'printer') {
-    return (
-      <svg {...common}>
-        <path d="M7 8V3h10v5M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" />
-        <path d="M7 14h10v7H7zM17 12h.01" />
-      </svg>
-    )
-  }
-
-  if (name === 'clipboard') {
-    return (
-      <svg {...common}>
-        <path d="M9 5h6M9 5a3 3 0 0 1 6 0M8 6H6a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-2M8 13h8M8 17h5" />
-      </svg>
-    )
-  }
-
-  if (name === 'check') {
-    return (
-      <svg {...common}>
-        <path d="m5 12 4 4L19 6" />
-      </svg>
-    )
-  }
-
-  if (name === 'send') {
-    return (
-      <svg {...common}>
-        <path d="m22 2-7 20-4-9-9-4 20-7Z" />
-        <path d="M22 2 11 13" />
-      </svg>
-    )
-  }
-
-  if (name === 'trash') {
-    return (
-      <svg {...common}>
-        <path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 11v6M14 11v6" />
-      </svg>
-    )
-  }
-
-  if (name === 'shield-off') {
-    return (
-      <svg {...common}>
-        <path d="M12 3 5 6v5c0 4.5 3 8.5 7 10 1.1-.4 2.1-1 3-1.7M19 13.5V6l-7-3-4.2 1.8M3 3l18 18" />
-      </svg>
-    )
-  }
-
-  if (name === 'eye') {
-    return (
-      <svg {...common}>
-        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
-        <circle cx="12" cy="12" r="3" />
-      </svg>
-    )
-  }
-
   if (name === 'x') {
     return (
       <svg {...common}>
@@ -919,11 +842,27 @@ function ReportIcon({ className = 'size-4', name }) {
     )
   }
 
-  if (name === 'lock') {
+  if (name === 'chevron-left') {
     return (
       <svg {...common}>
-        <rect height="10" rx="2" width="16" x="4" y="11" />
-        <path d="M8 11V8a4 4 0 1 1 8 0v3" />
+        <path d="m15 18-6-6 6-6" />
+      </svg>
+    )
+  }
+
+  if (name === 'chevron-right') {
+    return (
+      <svg {...common}>
+        <path d="m9 18 6-6-6-6" />
+      </svg>
+    )
+  }
+
+  if (name === 'save') {
+    return (
+      <svg {...common}>
+        <path d="M5 21h14a1 1 0 0 0 1-1V7.4a1 1 0 0 0-.3-.7l-2.4-2.4a1 1 0 0 0-.7-.3H5a1 1 0 0 0-1 1v15a1 1 0 0 0 1 1Z" />
+        <path d="M8 21v-6h8v6M8 4v5h7" />
       </svg>
     )
   }

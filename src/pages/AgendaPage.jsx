@@ -1,8 +1,20 @@
-import { useMemo, useState } from 'react'
+import {
+  addDays,
+  subDays,
+  addWeeks,
+  subWeeks,
+  addMonths,
+  subMonths,
+  endOfWeek,
+  format,
+  startOfWeek,
+} from 'date-fns'
+import { ptBR } from 'date-fns/locale'
 
-import { appointmentRepository } from '../repositories/appointmentRepository.js'
-import { patientRepository } from '../repositories/patientRepository.js'
-import { professionalRepository } from '../repositories/professionalRepository.js'
+import { AgendaDailyView } from '../components/calendar/AgendaDailyView.jsx'
+import { AgendaWeeklyView } from '../components/calendar/AgendaWeeklyView.jsx'
+import { AgendaMonthlyView } from '../components/calendar/AgendaMonthlyView.jsx'
+import { useAgenda } from '../hooks/useAgenda.js'
 
 const statusFilters = [
   { label: 'Todos', value: 'Todos' },
@@ -11,60 +23,47 @@ const statusFilters = [
   { label: 'Aguardando', value: 'Aguardando' },
 ]
 
-const viewFilters = ['Dia', 'Semana', 'Mês']
-
+const viewFilters = [
+  { label: 'Dia', value: 'Dia' },
+  { label: 'Semana', value: 'Semana' },
+  { label: 'Mês', value: 'Mes' },
+]
 
 export function AgendaPage({ navigate }) {
-  const patients = patientRepository.getAll()
-  const professionals = professionalRepository.getAll()
-  const queue = appointmentRepository.getPredictiveQueueSummary()
-  const timeline = appointmentRepository.getTodayTimeline()
-  const weekDays = appointmentRepository.getWeekDays()
-  const [activeView, setActiveView] = useState('Dia')
-  const [status, setStatus] = useState('Todos')
-  const [modalOpen, setModalOpen] = useState(false)
-  const [localAppointments, setLocalAppointments] = useState(() => appointmentRepository.getAll())
-  const [form, setForm] = useState({
-    patientId: patients[0].id,
-    professional: professionals[0].name,
-    type: 'Retorno',
-    time: '15:30',
-    mode: 'Teleconsulta',
-  })
+  const {
+    patients,
+    professionals,
+    currentProfessional,
+    viewerProfile,
+    agendaScope,
+    loading,
+    error,
+    canCreateAppointment,
+    activeView,
+    setActiveView,
+    baseDate,
+    setBaseDate,
+    status,
+    setStatus,
+    modalOpen,
+    setModalOpen,
+    form,
+    updateForm,
+    handleCreate,
+    visibleAppointments,
+  } = useAgenda()
 
-  const visibleAppointments = useMemo(() => {
-    if (status === 'Todos') {
-      return localAppointments
-    }
-
-    return localAppointments.filter((appointment) => appointment.status === status)
-  }, [localAppointments, status])
-
-  function updateForm(field, value) {
-    setForm((current) => ({ ...current, [field]: value }))
+  if (loading) {
+    return (
+      <div className="flex h-[50vh] items-center justify-center text-[#a3a3a3]">
+        <p>Carregando agenda...</p>
+      </div>
+    )
   }
 
-  function handleCreate(event) {
-    event.preventDefault()
-    const patient = patients.find((item) => item.id === form.patientId) || patients[0]
-
-    setLocalAppointments((current) => [
-      ...current,
-      {
-        id: `apt-local-${current.length + 1}`,
-        date: '2026-04-07',
-        patient: patient.name,
-        patientId: patient.id,
-        professional: form.professional,
-        room: form.mode === 'Teleconsulta' ? 'Sala virtual 3' : 'Sala 02',
-        status: 'Confirmada',
-        time: form.time,
-        type: form.type,
-        mode: form.mode,
-      },
-    ])
-    setModalOpen(false)
-  }
+  const weekStart = startOfWeek(baseDate, { weekStartsOn: 0 })
+  const weekEnd = endOfWeek(baseDate, { weekStartsOn: 0 })
+  const isDoctorScope = agendaScope === 'doctor'
 
   return (
     <div className="mx-auto flex max-w-[1180px] flex-col gap-8 text-[#e5e5e5]">
@@ -74,20 +73,53 @@ export function AgendaPage({ navigate }) {
             Agenda
           </h1>
           <p className="mt-2 text-sm leading-5 text-[#a3a3a3]">
-            Organize consultas, retornos e teleatendimentos do dia.
+            {isDoctorScope
+              ? `Agenda restrita ao médico logado: ${currentProfessional?.name || viewerProfile?.name || 'Médico atual'}.`
+              : 'Visualização completa da agenda com todos os médicos.'}
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-1 rounded-sm border border-[#404040] bg-[#262626] p-1">
+            <button
+              className="grid size-7 place-items-center rounded-sm text-[#a3a3a3] transition hover:bg-[#303030] hover:text-[#e5e5e5]"
+              onClick={() => {
+                if (activeView === 'Dia') setBaseDate((current) => subDays(current, 1))
+                if (activeView === 'Semana') setBaseDate((current) => subWeeks(current, 1))
+                if (activeView === 'Mes') setBaseDate((current) => subMonths(current, 1))
+              }}
+              type="button"
+            >
+              {'<'}
+            </button>
+            <span className="min-w-[160px] text-center text-sm font-semibold text-[#e5e5e5] capitalize">
+              {activeView === 'Dia' && format(baseDate, "dd 'de' MMM", { locale: ptBR })}
+              {activeView === 'Semana' &&
+                `${format(weekStart, 'dd MMM', { locale: ptBR })} - ${format(weekEnd, 'dd MMM', { locale: ptBR })}`}
+              {activeView === 'Mes' && format(baseDate, 'MMMM yyyy', { locale: ptBR })}
+            </span>
+            <button
+              className="grid size-7 place-items-center rounded-sm text-[#a3a3a3] transition hover:bg-[#303030] hover:text-[#e5e5e5]"
+              onClick={() => {
+                if (activeView === 'Dia') setBaseDate((current) => addDays(current, 1))
+                if (activeView === 'Semana') setBaseDate((current) => addWeeks(current, 1))
+                if (activeView === 'Mes') setBaseDate((current) => addMonths(current, 1))
+              }}
+              type="button"
+            >
+              {'>'}
+            </button>
+          </div>
           <button
             className="h-9 rounded-sm border border-[#404040] bg-[#262626] px-4 text-sm font-medium text-[#e5e5e5] transition hover:bg-[#303030]"
-            onClick={() => setStatus('Todos')}
+            onClick={() => setBaseDate(new Date())}
             type="button"
           >
             Hoje
           </button>
           <button
-            className="h-9 rounded-sm border border-[#3b82f6] bg-[#3b82f6] px-4 text-sm font-semibold text-white shadow-[0_10px_15px_rgba(59,130,246,0.16)] transition hover:bg-[#3478ed]"
+            className="h-9 rounded-sm border border-[#3b82f6] bg-[#3b82f6] px-4 text-sm font-semibold text-white shadow-[0_10px_15px_rgba(59,130,246,0.16)] transition hover:bg-[#3478ed] disabled:cursor-not-allowed disabled:border-[#404040] disabled:bg-[#303030] disabled:text-[#737373] disabled:shadow-none"
+            disabled={!canCreateAppointment}
             onClick={() => setModalOpen(true)}
             type="button"
           >
@@ -96,133 +128,103 @@ export function AgendaPage({ navigate }) {
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-5">
-        {weekDays.map((day) => (
-          <button
-            className={`rounded-2xl border p-4 text-left transition ${
-              day.active
-                ? 'border-[#3b82f6] bg-[#3b82f6]/10'
-                : 'border-[#404040] bg-[#262626] hover:border-[#525252]'
-            }`}
-            key={`${day.label}-${day.day}`}
-            type="button"
-          >
-            <span className="block text-xs font-semibold uppercase tracking-[0.16em] text-[#a3a3a3]">
-              {day.label}
-            </span>
-            <span className="mt-2 block text-[32px] font-bold leading-8 text-[#e5e5e5]">{day.day}</span>
-            <span className="mt-3 block text-sm text-[#3b82f6]">{day.count} consultas</span>
-          </button>
-        ))}
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-[1.45fr_0.85fr]">
-        <div className="rounded-2xl border border-[#404040] bg-[#262626] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.2)]">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 className="text-base font-bold leading-6 text-[#e5e5e5]">Terça, 07 abril</h2>
-              <p className="mt-1 text-sm leading-5 text-[#a3a3a3]">
-                Visualização: {activeView.toLowerCase()} | {visibleAppointments.length} registros no filtro
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {viewFilters.map((view) => (
-                <button
-                  className={`h-8 rounded-sm border px-3 text-sm font-semibold transition ${
-                    activeView === view
-                      ? 'border-[#3b82f6] bg-[#3b82f6] text-white'
-                      : 'border-[#404040] bg-[#303030] text-[#a3a3a3] hover:text-[#e5e5e5]'
-                  }`}
-                  key={view}
-                  onClick={() => setActiveView(view)}
-                  type="button"
-                >
-                  {view}
-                </button>
-              ))}
-            </div>
+      {error ? (
+        <section className="rounded-2xl border border-[#404040] bg-[#262626] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.2)]">
+          <div className="rounded-xl border border-dashed border-[#7f1d1d] bg-[#2a1111] p-6">
+            <h2 className="text-base font-bold text-[#fecaca]">Nao foi possivel liberar a agenda</h2>
+            <p className="mt-2 text-sm leading-6 text-[#fca5a5]">{error}</p>
+            <p className="mt-3 text-sm leading-6 text-[#a3a3a3]">
+              Enquanto esse vinculo nao existir na API, a tela fica bloqueada para evitar exibir consultas de outro medico.
+            </p>
           </div>
-
-          <div className="mt-5 flex flex-wrap gap-2">
-            {statusFilters.map((filter) => (
-              <button
-                className={`h-8 rounded-sm border px-3 text-sm font-semibold transition ${
-                  status === filter.value
-                    ? 'border-[#3b82f6] bg-[#3b82f6]/10 text-[#3b82f6]'
-                    : 'border-[#404040] bg-[#303030] text-[#a3a3a3] hover:text-[#e5e5e5]'
-                }`}
-                key={filter.value}
-                onClick={() => setStatus(filter.value)}
-                type="button"
-              >
-                {filter.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="mt-6 grid gap-3">
-            {visibleAppointments.length ? (
-              visibleAppointments.map((appointment) => (
-                <AgendaListItem
-                  appointment={appointment}
-                  key={appointment.id}
-                  navigate={navigate}
-                />
-              ))
-            ) : (
-              <div className="rounded-xl border border-dashed border-[#404040] bg-[#1f1f1f] p-8 text-center">
-                <h3 className="text-base font-bold text-[#e5e5e5]">Nenhum horário encontrado</h3>
-                <p className="mt-2 text-sm leading-6 text-[#a3a3a3]">
-                  Ajuste o filtro ou crie uma consulta mockada para este período.
+        </section>
+      ) : (
+        <section className="grid gap-6 xl:grid-cols-1">
+          <div className="rounded-2xl border border-[#404040] bg-[#262626] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.2)]">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base font-bold leading-6 text-[#e5e5e5]">
+                    {format(baseDate, "EEEE, dd 'de' MMMM", { locale: ptBR })}
+                  </h2>
+                </div>
+                <p className="mt-1 text-sm leading-5 text-[#a3a3a3]">
+                  Visualização: {activeView.toLowerCase()} | {visibleAppointments.length} registros visíveis
                 </p>
               </div>
-            )}
-          </div>
-        </div>
 
-        <div className="grid gap-6">
-          <div className="rounded-2xl border border-[#404040] bg-[#262626] p-5">
-            <h2 className="text-base font-bold text-[#e5e5e5]">Linha do tempo</h2>
-            <div className="mt-5 grid gap-1">
-              {timeline.map((item) => (
+              <div className="flex flex-wrap gap-2">
+                {viewFilters.map((view) => (
+                  <button
+                    className={`h-8 rounded-sm border px-3 text-sm font-semibold transition ${
+                      activeView === view.value
+                        ? 'border-[#3b82f6] bg-[#3b82f6] text-white'
+                        : 'border-[#404040] bg-[#303030] text-[#a3a3a3] hover:text-[#e5e5e5]'
+                    }`}
+                    key={view.value}
+                    onClick={() => setActiveView(view.value)}
+                    type="button"
+                  >
+                    {view.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap gap-2">
+              {statusFilters.map((filter) => (
                 <button
-                  className="grid grid-cols-[58px_1fr] gap-4 rounded-md px-2 py-3 text-left transition hover:bg-[#303030]"
-                  disabled={!item.patientId}
-                  key={`${item.hour}-${item.patient}`}
-                  onClick={() => item.patientId && navigate(`/pacientes/${item.patientId}`)}
+                  className={`h-8 rounded-sm border px-3 text-sm font-semibold transition ${
+                    status === filter.value
+                      ? 'border-[#3b82f6] bg-[#3b82f6]/10 text-[#3b82f6]'
+                      : 'border-[#404040] bg-[#303030] text-[#a3a3a3] hover:text-[#e5e5e5]'
+                  }`}
+                  key={filter.value}
+                  onClick={() => setStatus(filter.value)}
                   type="button"
                 >
-                  <span className="text-sm font-bold text-[#3b82f6]">{item.hour}</span>
-                  <span className="border-l border-[#404040] pl-4">
-                    <span className="block text-sm font-semibold text-[#e5e5e5]">{item.patient}</span>
-                    <span className="mt-1 block text-xs text-[#a3a3a3]">{item.type}</span>
-                  </span>
+                  {filter.label}
                 </button>
               ))}
             </div>
-          </div>
 
-          <div className="rounded-2xl border border-[#404040] bg-[#262626] p-5">
-            <h2 className="text-base font-bold text-[#e5e5e5]">Resumo preditivo</h2>
-            <div className="mt-5 grid gap-3">
-              {queue.map((item) => (
-                <div className="flex items-center justify-between rounded-md bg-[#2a2a2a] px-4 py-3" key={item.label}>
-                  <span className="text-sm font-medium text-[#a3a3a3]">{item.label}</span>
-                  <span className={`text-lg font-bold ${queueTone(item.tone)}`}>{item.value}</span>
-                </div>
-              ))}
+            {!isDoctorScope && (
+              <div className="mt-4 rounded-xl border border-[#404040] bg-[#1f1f1f] px-4 py-3 text-sm text-[#a3a3a3]">
+                Perfil atual: {viewerProfile?.role || 'Administrador'} | agendamentos exibidos para todos os profissionais.
+              </div>
+            )}
+
+            <div className="mt-6 grid gap-3">
+              {activeView === 'Semana' && (
+                <AgendaWeeklyView
+                  baseDate={baseDate}
+                  appointments={visibleAppointments}
+                  onAppointmentClick={(appointment) => navigate(`/pacientes/${appointment.patientId}`)}
+                />
+              )}
+
+              {activeView === 'Mes' && (
+                <AgendaMonthlyView
+                  baseDate={baseDate}
+                  appointments={visibleAppointments}
+                  onDayClick={(day) => {
+                    setBaseDate(day)
+                    setActiveView('Dia')
+                  }}
+                />
+              )}
+
+              {activeView === 'Dia' && (
+                <AgendaDailyView
+                  baseDate={baseDate}
+                  appointments={visibleAppointments}
+                  onAppointmentClick={(appointment) => navigate(`/pacientes/${appointment.patientId}`)}
+                />
+              )}
             </div>
-            <button
-              className="mt-5 h-9 rounded-sm border border-[#404040] bg-[#303030] px-4 text-sm font-semibold text-[#e5e5e5] transition hover:border-[#3b82f6] hover:text-[#3b82f6]"
-              onClick={() => navigate('/mensagens')}
-              type="button"
-            >
-              Confirmar presenças
-            </button>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       <DarkModal onClose={() => setModalOpen(false)} open={modalOpen} title="Nova consulta">
         <form className="grid gap-4" onSubmit={handleCreate}>
@@ -234,7 +236,7 @@ export function AgendaPage({ navigate }) {
             >
               {patients.map((patient) => (
                 <option key={patient.id} value={patient.id}>
-                  {patient.name}
+                  {patient.name || patient.full_name || patient.nome}
                 </option>
               ))}
             </select>
@@ -262,15 +264,26 @@ export function AgendaPage({ navigate }) {
           </div>
 
           <DarkField label="Profissional">
-            <select
-              className="h-11 rounded-md border border-[#404040] bg-[#303030] px-3 text-sm text-[#e5e5e5] outline-none focus:border-[#3b82f6]"
-              onChange={(event) => updateForm('professional', event.target.value)}
-              value={form.professional}
-            >
-              {professionals.map((professional) => (
-                <option key={professional.id}>{professional.name}</option>
-              ))}
-            </select>
+            {isDoctorScope ? (
+              <input
+                className="h-11 rounded-md border border-[#404040] bg-[#262626] px-3 text-sm text-[#a3a3a3] outline-none"
+                disabled
+                readOnly
+                value={currentProfessional?.name || 'Médico não vinculado'}
+              />
+            ) : (
+              <select
+                className="h-11 rounded-md border border-[#404040] bg-[#303030] px-3 text-sm text-[#e5e5e5] outline-none focus:border-[#3b82f6]"
+                onChange={(event) => updateForm('professionalId', event.target.value)}
+                value={form.professionalId}
+              >
+                {professionals.map((professional) => (
+                  <option key={professional.id} value={professional.id}>
+                    {professional.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </DarkField>
 
           <DarkField label="Tipo de consulta">
@@ -290,7 +303,8 @@ export function AgendaPage({ navigate }) {
               Cancelar
             </button>
             <button
-              className="h-10 rounded-sm border border-[#3b82f6] bg-[#3b82f6] px-4 text-sm font-semibold text-white transition hover:bg-[#3478ed]"
+              className="h-10 rounded-sm border border-[#3b82f6] bg-[#3b82f6] px-4 text-sm font-semibold text-white transition hover:bg-[#3478ed] disabled:cursor-not-allowed disabled:border-[#404040] disabled:bg-[#303030] disabled:text-[#737373]"
+              disabled={!canCreateAppointment}
               type="submit"
             >
               Salvar consulta
@@ -299,37 +313,6 @@ export function AgendaPage({ navigate }) {
         </form>
       </DarkModal>
     </div>
-  )
-}
-
-function AgendaListItem({ appointment, navigate }) {
-  return (
-    <article className="grid gap-4 rounded-xl border border-[#404040] bg-[#1f1f1f] p-4 md:grid-cols-[72px_1fr_auto]">
-      <div>
-        <p className="text-xl font-bold leading-7 text-[#e5e5e5]">{appointment.time}</p>
-        <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#737373]">
-          {appointment.mode}
-        </p>
-      </div>
-
-      <div>
-        <button
-          className="text-left text-base font-bold text-[#e5e5e5] transition hover:text-[#3b82f6]"
-          onClick={() => navigate(`/pacientes/${appointment.patientId}`)}
-          type="button"
-        >
-          {appointment.patient}
-        </button>
-        <p className="mt-1 text-sm text-[#a3a3a3]">
-          {appointment.type} com {appointment.professional}
-        </p>
-        <p className="mt-2 text-xs font-medium text-[#737373]">{appointment.room}</p>
-      </div>
-
-      <div className="flex items-start justify-between gap-3 md:justify-end">
-        <StatusPill status={appointment.status} />
-      </div>
-    </article>
   )
 }
 
@@ -365,31 +348,4 @@ function DarkModal({ children, onClose, open, title }) {
       </div>
     </div>
   )
-}
-
-function StatusPill({ status }) {
-  const classes = {
-    Confirmada: 'border-[#14532d] bg-[#052e1a] text-[#10b981]',
-    'Em triagem': 'border-[#78350f] bg-[#2d1e05] text-[#f59e0b]',
-    Aguardando: 'border-[#404040] bg-[#303030] text-[#a3a3a3]',
-    Bloqueado: 'border-[#404040] bg-[#303030] text-[#737373]',
-  }
-
-  return (
-    <span className={`rounded-full border px-3 py-1 text-xs font-bold ${classes[status] || classes.Aguardando}`}>
-      {status}
-    </span>
-  )
-}
-
-function queueTone(tone) {
-  if (tone === 'red') {
-    return 'text-[#ef4444]'
-  }
-
-  if (tone === 'amber') {
-    return 'text-[#f59e0b]'
-  }
-
-  return 'text-[#3b82f6]'
 }

@@ -1,17 +1,19 @@
 import { useState } from 'react'
 
-import { useAuth } from '../auth/useAuth.js'
+import { authRepository } from '../repositories/authRepository.js'
+
 import { BrandLogo } from '../components/Brand.jsx'
+import { FeatureBadge, FeatureCallout } from '../components/FeatureState.jsx'
 import loginClinicImage from '../assets/figma/login-clinic.png'
 
 export function LoginPage({ navigate }) {
-  const { authError, login } = useAuth()
   const [form, setForm] = useState({
     email: '',
     password: '',
   })
   const [showPassword, setShowPassword] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   function updateField(field, value) {
     setForm((current) => ({ ...current, [field]: value }))
@@ -19,17 +21,16 @@ export function LoginPage({ navigate }) {
 
   async function handleSubmit(event) {
     event.preventDefault()
-    setIsSubmitting(true)
+    setLoading(true)
+    setError('')
 
-    const result = await login({
-      email: form.email.trim(),
-      password: form.password,
-    })
-
-    setIsSubmitting(false)
-
-    if (result.ok) {
-      navigate('/inicio', { replace: true })
+    try {
+      await authRepository.login(form)
+      navigate('/inicio')
+    } catch (err) {
+      setError(err.message || 'Erro de autenticação')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -88,6 +89,12 @@ export function LoginPage({ navigate }) {
               </p>
             </div>
 
+            {error && (
+              <div className="mt-4 rounded bg-red-500/10 p-3 text-sm font-semibold text-red-500 border border-red-500/20">
+                {error}
+              </div>
+            )}
+
             <form className="mt-8 grid gap-5" onSubmit={handleSubmit}>
               <LoginField htmlFor="login-email" label="E-mail">
                 <input
@@ -96,7 +103,6 @@ export function LoginPage({ navigate }) {
                   id="login-email"
                   onChange={(event) => updateField('email', event.target.value)}
                   placeholder="seu@email.com"
-                  required
                   type="email"
                   value={form.email}
                 />
@@ -122,7 +128,6 @@ export function LoginPage({ navigate }) {
                     id="login-password"
                     onChange={(event) => updateField('password', event.target.value)}
                     placeholder="••••••••"
-                    required
                     type={showPassword ? 'text' : 'password'}
                     value={form.password}
                   />
@@ -137,22 +142,33 @@ export function LoginPage({ navigate }) {
                 </div>
               </LoginField>
 
-              {authError ? (
-                <div className="rounded-[6px] border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm leading-5 text-red-200" role="alert">
-                  {authError}
-                </div>
-              ) : null}
-
               <button
-                className="inline-flex h-11 w-full items-center justify-center rounded-[6px] border border-[#3b82f6] bg-[#3b82f6] px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_15px_rgba(59,130,246,0.2),0_4px_6px_rgba(59,130,246,0.2)] transition hover:bg-[#3478ed] disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3b82f6]"
-                disabled={isSubmitting}
+                className="inline-flex h-11 w-full items-center justify-center rounded-[6px] border border-[#3b82f6] bg-[#3b82f6] px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_15px_rgba(59,130,246,0.2),0_4px_6px_rgba(59,130,246,0.2)] transition hover:bg-[#3478ed] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3b82f6] disabled:opacity-50"
+                disabled={loading}
                 type="submit"
               >
-                {isSubmitting ? 'Entrando...' : 'Entrar'}
+                {loading ? 'Entrando...' : 'Entrar'}
               </button>
             </form>
           </div>
 
+          <button
+            className="absolute bottom-4 right-4 flex h-[29px] items-center gap-1.5 rounded-sm border border-white/10 bg-white/[0.05] px-3 font-mono text-[10px] font-medium leading-[15px] text-white/30 transition hover:text-white/50"
+            onClick={() => {
+              setForm({
+                email: 'recepcao@mediconnect.com',
+                password: 'demo123',
+              })
+            }}
+            title="Preencher credenciais mockadas"
+            type="button"
+          >
+            dev · credenciais
+            <FeatureBadge className="border-white/20 bg-white/10 text-white/70" status="mock" text="mock" />
+            <span aria-hidden="true" className="text-[9px]">
+              ^
+            </span>
+          </button>
         </section>
       </div>
     </main>
@@ -167,6 +183,12 @@ export function RegisterPage({ navigate }) {
       description="Crie um acesso mockado para navegar pelo ambiente da clínica."
       title="Criar acesso"
     >
+      <FeatureCallout
+        className="mt-6"
+        description="Cadastro ainda é apenas demonstrativo e não cria conta real."
+        status="mock"
+        title="Fluxo mockado"
+      />
       <form
         className="mt-8 grid gap-5"
         onSubmit={(event) => {
@@ -211,29 +233,52 @@ export function RegisterPage({ navigate }) {
 
 export function ForgotPasswordPage({ navigate }) {
   const [sent, setSent] = useState(false)
+  const [email, setEmail] = useState('recepcao@mediconnect.com')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+    setLoading(true)
+    setError('')
+    try {
+      await authRepository.requestPasswordReset(email)
+      setSent(true)
+    } catch (err) {
+      setError(err.message || 'Erro ao comunicar com o servidor.')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <AuthLayout
-      description="Informe o e-mail cadastrado para receber um link mockado."
+      description="Informe o e-mail cadastrado para receber o link de acesso."
       title="Recuperar senha"
     >
       {sent ? (
         <div className="mt-8 rounded-[6px] border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm leading-6 text-emerald-300">
-          Link de recuperação mockado enviado para o e-mail informado.
+          Link de recuperação enviado para o e-mail informado. Siga as instruções do link!
         </div>
       ) : (
         <form
           className="mt-8 grid gap-5"
-          onSubmit={(event) => {
-            event.preventDefault()
-            setSent(true)
-          }}
+          onSubmit={handleSubmit}
         >
+          {error && (
+            <div className="rounded bg-red-500/10 p-3 text-sm font-semibold text-red-500 border border-red-500/20">
+              {error}
+            </div>
+          )}
           <AuthField label="E-mail cadastrado">
-            <input autoComplete="email" className={authInputClass} defaultValue="recepcao@mediconnect.com" type="email" />
+            <input autoComplete="email" className={authInputClass} onChange={e => setEmail(e.target.value)} value={email} type="email" />
           </AuthField>
-          <button className="inline-flex h-11 w-full items-center justify-center rounded-[6px] bg-[#3b82f6] text-sm font-semibold text-white shadow-[0_10px_15px_rgba(59,130,246,0.2)] transition hover:bg-[#3478ed]" type="submit">
-            Enviar link
+          <button 
+            className="inline-flex h-11 w-full items-center justify-center rounded-[6px] bg-[#3b82f6] text-sm font-semibold text-white shadow-[0_10px_15px_rgba(59,130,246,0.2)] transition hover:bg-[#3478ed] disabled:opacity-50" 
+            disabled={loading}
+            type="submit"
+          >
+            {loading ? "Enviando..." : "Enviar link"}
           </button>
         </form>
       )}

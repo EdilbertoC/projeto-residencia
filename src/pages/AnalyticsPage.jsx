@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { FeatureCallout } from '../components/FeatureState.jsx'
 import { analyticsRepository } from '../repositories/analyticsRepository.js'
 
 const periods = [
@@ -25,6 +26,12 @@ export function AnalyticsPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
+      <FeatureCallout
+        description="Os indicadores, gráficos e rankings desta tela ainda vêm de dados mockados."
+        status="mock"
+        title="Analytics ainda é demonstrativo"
+      />
+
       <section className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-[#f5f5f5]">Relatórios & Analytics</h1>

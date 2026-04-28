@@ -1,4 +1,6 @@
 import loginClinicImage from '../assets/figma/login-clinic.png'
+import { FeatureBadge, FeatureCallout } from '../components/FeatureState.jsx'
+import { featurePanelClass } from '../components/featureStateStyles.js'
 import { homeRepository } from '../repositories/homeRepository.js'
 
 export function HomePage({ navigate }) {
@@ -6,6 +8,12 @@ export function HomePage({ navigate }) {
 
   return (
     <div className="mx-auto flex max-w-[1180px] flex-col gap-8 text-[#e5e5e5]">
+      <FeatureCallout
+        description="Painel, métricas, insights e relatórios desta tela ainda usam dados mockados."
+        status="mock"
+        title="Visão geral ainda não está ligada à API"
+      />
+
       <section className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-[32px] font-bold leading-8 tracking-[-0.02em] text-[#e5e5e5]">
@@ -41,14 +49,17 @@ export function HomePage({ navigate }) {
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.7fr_0.9fr]">
-        <div className="rounded-2xl border border-[#3b82f6] bg-[#262626] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.2)]">
+        <div className={`rounded-2xl border bg-[#262626] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.2)] ${featurePanelClass('mock')}`}>
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-4">
               <div className="grid size-12 shrink-0 place-items-center rounded-md bg-[#3b82f6] text-white">
                 <SparkLineIcon className="size-6" />
               </div>
               <div>
-                <h2 className="text-base font-bold leading-6 text-[#3b82f6]">Insights de IA</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base font-bold leading-6 text-[#3b82f6]">Insights de IA</h2>
+                  <FeatureBadge status="mock" />
+                </div>
                 <p className="mt-1 text-sm font-medium leading-5 text-[#a3a3a3]">
                   Evolução de absenteísmo e risco da semana
                 </p>
@@ -65,8 +76,11 @@ export function HomePage({ navigate }) {
         </div>
 
         <div className="grid gap-4">
-          <div className="rounded-2xl border border-[#404040] bg-[#262626] p-5">
-            <h2 className="text-base font-bold text-[#e5e5e5]">Pacientes de hoje</h2>
+          <div className={`rounded-2xl border bg-[#262626] p-5 ${featurePanelClass('mock')}`}>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-base font-bold text-[#e5e5e5]">Pacientes de hoje</h2>
+              <FeatureBadge status="mock" />
+            </div>
             <div className="mt-4 grid gap-3">
               {appointmentsToday.map((item) => (
                 <button
@@ -85,8 +99,11 @@ export function HomePage({ navigate }) {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[#404040] bg-[#262626] p-5">
-            <h2 className="text-base font-bold text-[#e5e5e5]">Alerta preditivo</h2>
+          <div className={`rounded-2xl border bg-[#262626] p-5 ${featurePanelClass('mock')}`}>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-base font-bold text-[#e5e5e5]">Alerta preditivo</h2>
+              <FeatureBadge status="mock" />
+            </div>
             <p className="mt-3 text-sm leading-6 text-[#a3a3a3]">
               3 pacientes apresentam risco de falta. Recomenda-se confirmar presença antes das 16h.
             </p>
@@ -102,7 +119,10 @@ export function HomePage({ navigate }) {
       </section>
 
       <section className="grid gap-4" id="relatorios">
-        <h2 className="text-base font-bold text-[#e5e5e5]">Relatórios e Análises</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-base font-bold text-[#e5e5e5]">Relatórios e Análises</h2>
+          <FeatureBadge status="mock" />
+        </div>
         <div className="grid gap-4 lg:grid-cols-2">
           <button
             className="relative min-h-[164px] overflow-hidden rounded-2xl border border-[#3b82f6] bg-[#262626] p-5 text-left shadow-[0_1px_3px_rgba(0,0,0,0.2)]"

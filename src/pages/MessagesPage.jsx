@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
 
+import { FeatureCallout } from '../components/FeatureState.jsx'
+import { featurePanelClass } from '../components/featureStateStyles.js'
 import { communicationRepository } from '../repositories/communicationRepository.js'
 
 const channels = {
@@ -18,6 +20,7 @@ const statusConfig = {
 
 const emptyMessage = {
   patient: '',
+  phone: '',
   channel: 'whatsapp',
   template: 'Lembrete 48h',
   content: '',
@@ -79,6 +82,7 @@ export function MessagesPage() {
   function openTemplate(template) {
     setComposer({
       patient: '',
+      phone: '',
       channel: template.channel,
       template: template.name,
       content: template.content,
@@ -86,11 +90,31 @@ export function MessagesPage() {
     setComposerOpen(true)
   }
 
-  function submitMessage(event) {
+  async function submitMessage(event) {
     event.preventDefault()
 
     if (!composer.patient.trim()) {
       return
+    }
+
+    let smsSent = false
+
+    if (composer.channel === 'sms') {
+      if (!composer.phone.trim()) {
+        alert('Informe o telefone para enviar SMS.')
+        return
+      }
+
+      try {
+        await communicationRepository.sendSms({
+          patientName: composer.patient.trim(),
+          phone: composer.phone.trim(),
+          content: composer.content,
+        })
+        smsSent = true
+      } catch (e) {
+        alert('Falha ao disparar SMS: ' + e.message)
+      }
     }
 
     setMessages((current) => [
@@ -100,7 +124,7 @@ export function MessagesPage() {
         channel: composer.channel,
         template: composer.template.trim() || 'Mensagem avulsa',
         sentAt: 'Agora',
-        status: 'pendente',
+        status: composer.channel === 'sms' ? (smsSent ? 'entregue' : 'falha') : 'pendente',
         response: '',
       },
       ...current,
@@ -133,6 +157,12 @@ export function MessagesPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
+      <FeatureCallout
+        description="Envio de SMS usa API. Histórico, templates e campanhas ainda são dados locais de demonstração."
+        status="partial"
+        title="Mensageria híbrida"
+      />
+
       <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-[#f5f5f5]">Comunicação</h1>
@@ -188,7 +218,7 @@ export function MessagesPage() {
       </div>
 
       {activeTab === 'historico' ? (
-        <section className={`${cardClass} p-5 md:p-6`} aria-label="Histórico de comunicação">
+        <section className={`${cardClass} ${featurePanelClass('mock')} p-5 md:p-6`} aria-label="Histórico de comunicação">
           <div className="mb-6 flex flex-col gap-3 md:flex-row">
             <label className="relative flex-1">
               <span className="sr-only">Buscar comunicação</span>
@@ -257,7 +287,7 @@ export function MessagesPage() {
       ) : null}
 
       {activeTab === 'templates' ? (
-        <section className="space-y-4" aria-label="Templates de comunicação">
+        <section className={`space-y-4 rounded-2xl p-4 ${featurePanelClass('mock')}`} aria-label="Templates de comunicação">
           <div className="flex justify-end">
             <button
               className="inline-flex h-10 items-center gap-2 rounded-sm bg-[#3b82f6] px-4 text-sm font-semibold text-white transition hover:bg-[#2563eb]"
@@ -278,7 +308,7 @@ export function MessagesPage() {
       ) : null}
 
       {activeTab === 'campanha' ? (
-        <section className={`${cardClass} p-6`} aria-label="Campanhas inteligentes">
+        <section className={`${cardClass} ${featurePanelClass('mock')} p-6`} aria-label="Campanhas inteligentes">
           <div className="py-8 text-center">
             <div className="mx-auto mb-4 grid size-16 place-items-center rounded-full bg-[#303030]">
               <CommIcon className="size-8 text-[#51a2ff]" name="send" />
@@ -300,6 +330,7 @@ export function MessagesPage() {
                     onClick={() => {
                       setComposer({
                         patient: campaign.count,
+                        phone: '',
                         channel: 'whatsapp',
                         template: campaign.title,
                         content: campaign.desc,
@@ -469,6 +500,17 @@ function MessageComposer({ draft, onChange, onClose, onSubmit, templates }) {
             </select>
           </DarkField>
         </div>
+
+        {draft.channel === 'sms' ? (
+          <DarkField label="Telefone">
+            <input
+              className={inputClass}
+              onChange={(event) => update('phone', event.target.value)}
+              placeholder="(81) 99999-9999"
+              value={draft.phone}
+            />
+          </DarkField>
+        ) : null}
 
         <DarkField label="Template">
           <select className={inputClass} onChange={(event) => applyTemplate(event.target.value)} value={draft.template}>

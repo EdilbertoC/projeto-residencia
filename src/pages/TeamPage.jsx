@@ -1,13 +1,26 @@
+import { useState, useEffect } from 'react'
+import { FeatureBadge, FeatureCallout } from '../components/FeatureState.jsx'
+import { featurePanelClass } from '../components/featureStateStyles.js'
 import { professionalRepository } from '../repositories/professionalRepository.js'
 
 const cardClass = 'rounded-2xl border border-[#404040] bg-[#262626] shadow-sm'
 
 export function TeamPage({ navigate }) {
-  const professionals = professionalRepository.getAll()
+  const [professionals, setProfessionals] = useState([])
   const { slots, weekdays } = professionalRepository.getCoverageMap()
+
+  useEffect(() => {
+    professionalRepository.getAll().then(setProfessionals).catch(console.error)
+  }, [])
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
+      <FeatureCallout
+        description="A listagem de profissionais usa API, mas o mapa de cobertura e parte da disponibilidade ainda são simulados."
+        status="partial"
+        title="Tela híbrida: parte real, parte mockada"
+      />
+
       <header className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-[#f5f5f5]">Profissionais</h1>
@@ -24,7 +37,7 @@ export function TeamPage({ navigate }) {
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" aria-label="Equipe médica">
         {professionals.map((professional) => (
-          <article className={`${cardClass} p-5`} key={professional.id}>
+          <article className={`${cardClass} ${featurePanelClass('live')} p-5`} key={professional.id}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="grid size-11 place-items-center rounded-full border border-[#3b82f6]/30 bg-[#3b82f6]/10 text-sm font-bold text-[#3b82f6]">
@@ -45,10 +58,13 @@ export function TeamPage({ navigate }) {
         ))}
       </section>
 
-      <section className={`${cardClass} p-5`}>
+      <section className={`${cardClass} ${featurePanelClass('mock')} p-5`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-bold text-[#f5f5f5]">Mapa de cobertura</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-xl font-bold text-[#f5f5f5]">Mapa de cobertura</h2>
+              <FeatureBadge status="mock" />
+            </div>
             <p className="mt-1 text-sm text-[#a3a3a3]">
               Matriz simples para preparar o fluxo de agenda, plantão e disponibilidade.
             </p>

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 
+import { FeatureCallout } from '../components/FeatureState.jsx'
 import { visitRepository } from '../repositories/visitRepository.js'
 
 const tabs = [
@@ -35,6 +36,12 @@ export function VisitsPage({ navigate }) {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
+      <FeatureCallout
+        description="Fila, etapas e resumo desta tela ainda são inteiramente mockados."
+        status="mock"
+        title="Consultas ainda não usam backend"
+      />
+
       <header className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-[#f5f5f5]">Consultas</h1>
