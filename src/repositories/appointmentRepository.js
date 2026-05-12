@@ -1,5 +1,6 @@
 import { apiConfig, getAuthenticatedHeaders } from '../config/api.js'
 import { appointmentMapper } from '../mappers/appointmentMapper.js'
+import { getResponseError, normalizeItem } from './repositoryUtils.js'
 
 export const appointmentRepository = {
   async getAll({ doctorId } = {}) {
@@ -9,7 +10,7 @@ export const appointmentRepository = {
       headers: getAuthenticatedHeaders()
     })
     
-    if (!response.ok) throw new Error('Erro ao buscar agendamentos.')
+    if (!response.ok) throw new Error(await getResponseError(response, 'Erro ao buscar agendamentos.'))
     
     const data = await response.json()
     return (Array.isArray(data) ? data : []).map(appointmentMapper.toUi)
@@ -22,10 +23,26 @@ export const appointmentRepository = {
       body: JSON.stringify(appointmentMapper.toApi(uiData, 'supabase')),
     })
 
-    if (!response.ok) throw new Error('Falha ao criar o agendamento.')
+    if (!response.ok) throw new Error(await getResponseError(response, 'Falha ao criar o agendamento.'))
 
     const data = await response.json()
-    const item = Array.isArray(data) ? data[0] : data
-    return appointmentMapper.toUi(item)
-  }
+    return appointmentMapper.toUi(normalizeItem(data))
+  },
+
+  async update(id, uiData) {
+    const response = await fetch(`${apiConfig.restUrl}/appointments?id=eq.${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: getAuthenticatedHeaders({ Prefer: 'return=representation' }),
+      body: JSON.stringify(appointmentMapper.toApi(uiData, 'supabase')),
+    })
+
+    if (!response.ok) throw new Error(await getResponseError(response, 'Falha ao atualizar o agendamento.'))
+
+    const data = await response.json()
+    return appointmentMapper.toUi(normalizeItem(data))
+  },
+
+  async cancel(id, uiData) {
+    return this.update(id, { ...uiData, status: 'Cancelada' })
+  },
 }

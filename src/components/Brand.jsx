@@ -1,14 +1,32 @@
 export function BrandLogo({
   className = '',
   iconClassName = 'size-10 rounded-[6px]',
+  iconButtonLabel = 'MediConnect',
   markClassName = 'size-6',
+  onIconClick,
   textClassName = 'text-2xl font-bold leading-8 tracking-[-0.025em] text-white',
 }) {
+  const icon = (
+    <div className={`grid place-items-center bg-[#3b82f6] text-white ${iconClassName}`}>
+      <StethoscopeIcon className={markClassName} />
+    </div>
+  )
+
   return (
     <div className={`flex items-center gap-3 ${className}`}>
-      <div className={`grid place-items-center bg-[#3b82f6] text-white ${iconClassName}`}>
-        <StethoscopeIcon className={markClassName} />
-      </div>
+      {onIconClick ? (
+        <button
+          aria-label={iconButtonLabel}
+          className="shrink-0 rounded-sm transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-[#3b82f6]/50"
+          onClick={onIconClick}
+          title={iconButtonLabel}
+          type="button"
+        >
+          {icon}
+        </button>
+      ) : (
+        icon
+      )}
       <p className={textClassName}>MediConnect</p>
     </div>
   )

@@ -22,7 +22,7 @@ export function VisitsPage({ navigate }) {
     }
 
     if (activeTab === 'atendimento') {
-      return careQueue.filter((item) => item.status !== 'Finalizada' && item.status !== 'Aguardando medico')
+      return careQueue.filter((item) => item.status !== 'Finalizada' && item.status !== 'Aguardando médico')
     }
 
     return careQueue.filter((item) => item.status !== 'Finalizada')

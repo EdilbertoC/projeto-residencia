@@ -4,9 +4,9 @@ export function NotFoundPage({ navigate }) {
   return (
     <div className="grid gap-6">
       <PageHeader
-        description="A rota acessada nao faz parte do shell navegavel deste prototipo."
+        description="A rota acessada não faz parte do shell navegável deste protótipo."
         eyebrow="404"
-        title="Tela nao encontrada"
+        title="Tela não encontrada"
       />
       <Card className="p-6">
         <p className="max-w-2xl text-sm leading-6 text-slate-600">

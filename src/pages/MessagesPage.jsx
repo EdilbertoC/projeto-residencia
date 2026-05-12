@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
+import { normalizeRole } from '../config/permissions.js'
 import { FeatureCallout } from '../components/FeatureState.jsx'
 import { featurePanelClass } from '../components/featureStateStyles.js'
 import { communicationRepository } from '../repositories/communicationRepository.js'
+import { patientRepository } from '../repositories/patientRepository.js'
 
 const channels = {
   whatsapp: { label: 'WhatsApp', className: 'bg-emerald-500/20 text-emerald-400', icon: 'message' },
@@ -19,6 +21,7 @@ const statusConfig = {
 
 
 const emptyMessage = {
+  patientId: '',
   patient: '',
   phone: '',
   channel: 'whatsapp',
@@ -40,21 +43,62 @@ const textareaClass =
   'min-h-28 w-full resize-y rounded-sm border border-[#404040] bg-[#171717] px-3 py-2 text-sm leading-6 text-[#e5e5e5] outline-none transition placeholder:text-[#a3a3a3] focus:border-[#3b82f6] focus:ring-2 focus:ring-[#3b82f6]/20'
 const labelClass = 'text-xs font-semibold uppercase tracking-[0.08em] text-[#a3a3a3]'
 
-export function MessagesPage() {
+export function MessagesPage({ role }) {
+  const normalizedRole = normalizeRole(role)
+  const isSecretary = normalizedRole === 'secretaria'
+  const allowedChannelKeys = useMemo(
+    () => (isSecretary ? ['whatsapp', 'sms'] : Object.keys(channels)),
+    [isSecretary],
+  )
   const campaigns = communicationRepository.getCampaigns()
   const [messages, setMessages] = useState(() => communicationRepository.getInitialMessages())
   const [templates, setTemplates] = useState(() => communicationRepository.getInitialTemplates())
+  const [patients, setPatients] = useState([])
   const [activeTab, setActiveTab] = useState('historico')
   const [channelFilter, setChannelFilter] = useState('todos')
   const [search, setSearch] = useState('')
   const [composerOpen, setComposerOpen] = useState(false)
   const [templateEditorOpen, setTemplateEditorOpen] = useState(false)
+  const [editingTemplateId, setEditingTemplateId] = useState(null)
   const [composer, setComposer] = useState(emptyMessage)
   const [templateDraft, setTemplateDraft] = useState(emptyTemplate)
+  const availableTemplates = useMemo(
+    () => templates.filter((template) => allowedChannelKeys.includes(template.channel)),
+    [allowedChannelKeys, templates],
+  )
+  const patientOptions = useMemo(
+    () =>
+      patients.map((patient) => ({
+        id: String(patient.detailId || patient.id || ''),
+        name: patient.name || patient.full_name || patient.nome || 'Paciente',
+        phone: patient.phone || patient.phone_mobile || patient.telefone || '',
+        document: patient.cpf || patient.document || '',
+      })),
+    [patients],
+  )
+
+  useEffect(() => {
+    let active = true
+
+    patientRepository
+      .getDirectoryRows()
+      .then((data) => {
+        if (active) setPatients(data || [])
+      })
+      .catch((loadError) => {
+        console.error(loadError)
+        if (active) setPatients([])
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
 
   const filteredMessages = useMemo(
     () =>
       messages.filter((message) => {
+        const isAllowedChannel = allowedChannelKeys.includes(message.channel)
         const matchesChannel = channelFilter === 'todos' || message.channel === channelFilter
         const query = search.trim().toLowerCase()
         const matchesSearch =
@@ -64,23 +108,26 @@ export function MessagesPage() {
             .toLowerCase()
             .includes(query)
 
-        return matchesChannel && matchesSearch
+        return isAllowedChannel && matchesChannel && matchesSearch
       }),
-    [channelFilter, messages, search],
+    [allowedChannelKeys, channelFilter, messages, search],
   )
 
   const stats = useMemo(
     () => ({
-      total: messages.length,
-      delivered: messages.filter((message) => message.status === 'entregue' || message.status === 'lida').length,
-      read: messages.filter((message) => message.status === 'lida').length,
-      failed: messages.filter((message) => message.status === 'falha').length,
+      total: messages.filter((message) => allowedChannelKeys.includes(message.channel)).length,
+      delivered: messages.filter((message) => allowedChannelKeys.includes(message.channel) && (message.status === 'entregue' || message.status === 'lida')).length,
+      read: messages.filter((message) => allowedChannelKeys.includes(message.channel) && message.status === 'lida').length,
+      failed: messages.filter((message) => allowedChannelKeys.includes(message.channel) && message.status === 'falha').length,
     }),
-    [messages],
+    [allowedChannelKeys, messages],
   )
 
   function openTemplate(template) {
+    if (!allowedChannelKeys.includes(template.channel)) return
+
     setComposer({
+      patientId: '',
       patient: '',
       phone: '',
       channel: template.channel,
@@ -90,10 +137,35 @@ export function MessagesPage() {
     setComposerOpen(true)
   }
 
+  function openTemplateEditor(template = null) {
+    if (template && !allowedChannelKeys.includes(template.channel)) return
+
+    setEditingTemplateId(template?.id || null)
+    setTemplateDraft(
+      template
+        ? {
+            name: template.name || '',
+            channel: template.channel || allowedChannelKeys[0],
+            category: template.category || 'Personalizado',
+            content: template.content || '',
+          }
+        : {
+            ...emptyTemplate,
+            channel: allowedChannelKeys[0] || 'whatsapp',
+          },
+    )
+    setTemplateEditorOpen(true)
+  }
+
   async function submitMessage(event) {
     event.preventDefault()
 
     if (!composer.patient.trim()) {
+      return
+    }
+
+    if (!allowedChannelKeys.includes(composer.channel)) {
+      alert('Canal indisponivel para o seu perfil.')
       return
     }
 
@@ -141,16 +213,20 @@ export function MessagesPage() {
       return
     }
 
-    setTemplates((current) => [
-      {
-        id: `template-${Date.now()}`,
-        name: templateDraft.name.trim(),
-        channel: templateDraft.channel,
-        content: templateDraft.content.trim(),
-        category: templateDraft.category.trim() || 'Personalizado',
-      },
-      ...current,
-    ])
+    const nextTemplate = {
+      id: editingTemplateId || `template-${Date.now()}`,
+      name: templateDraft.name.trim(),
+      channel: templateDraft.channel,
+      content: templateDraft.content.trim(),
+      category: templateDraft.category.trim() || 'Personalizado',
+    }
+
+    setTemplates((current) =>
+      editingTemplateId
+        ? current.map((template) => (template.id === editingTemplateId ? nextTemplate : template))
+        : [nextTemplate, ...current],
+    )
+    setEditingTemplateId(null)
     setTemplateDraft(emptyTemplate)
     setTemplateEditorOpen(false)
   }
@@ -158,26 +234,28 @@ export function MessagesPage() {
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <FeatureCallout
-        description="Envio de SMS usa API. Histórico, templates e campanhas ainda são dados locais de demonstração."
+        description={isSecretary ? 'Perfil Secretária limitado a comunicação básica por WhatsApp e SMS.' : 'Envio de SMS usa API. Histórico, templates e campanhas ainda são dados locais de demonstração.'}
         status="partial"
-        title="Mensageria híbrida"
+        title={isSecretary ? 'Comunicação basica' : 'Mensageria hibrida'}
       />
 
       <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-[#f5f5f5]">Comunicação</h1>
-          <p className="mt-1 text-sm text-[#b8b8b8]">WhatsApp, E-mail e SMS - histórico e campanhas</p>
+          <p className="mt-1 text-sm text-[#b8b8b8]">{isSecretary ? 'WhatsApp e SMS para contato operacional com pacientes' : 'WhatsApp, E-mail e SMS - historico e campanhas'}</p>
         </div>
 
         <div className="flex flex-wrap gap-3">
-          <button
-            className="inline-flex h-12 items-center gap-2 rounded-sm border border-[#404040] bg-[#262626] px-4 text-sm font-semibold text-[#e5e5e5] transition hover:bg-[#303030]"
-            onClick={() => setActiveTab('campanha')}
-            type="button"
-          >
-            <CommIcon className="size-4" name="send" />
-            Envio em Massa
-          </button>
+          {!isSecretary ? (
+            <button
+              className="inline-flex h-12 items-center gap-2 rounded-sm border border-[#404040] bg-[#262626] px-4 text-sm font-semibold text-[#e5e5e5] transition hover:bg-[#303030]"
+              onClick={() => setActiveTab('campanha')}
+              type="button"
+            >
+              <CommIcon className="size-4" name="send" />
+              Envio em Massa
+            </button>
+          ) : null}
           <button
             className="inline-flex h-12 items-center gap-2 rounded-sm bg-[#3b82f6] px-4 text-sm font-semibold text-white transition hover:bg-[#2563eb]"
             onClick={() => setComposerOpen(true)}
@@ -199,8 +277,7 @@ export function MessagesPage() {
       <div className="flex gap-4 border-b border-[#404040]">
         {[
           ['historico', 'Histórico'],
-          ['templates', 'Templates'],
-          ['campanha', 'Campanhas'],
+          ...(!isSecretary ? [['templates', 'Templates'], ['campanha', 'Campanhas']] : []),
         ].map(([key, label]) => (
           <button
             className={`border-b-2 px-2 pb-3 text-sm font-semibold transition ${
@@ -238,9 +315,7 @@ export function MessagesPage() {
             <div className="flex flex-wrap gap-2">
               {[
                 ['todos', 'Todos'],
-                ['whatsapp', 'Whatsapp'],
-                ['email', 'E-mail'],
-                ['sms', 'Sms'],
+                ...allowedChannelKeys.map((key) => [key, channels[key].label]),
               ].map(([key, label]) => (
                 <button
                   className={`h-12 rounded-sm border px-4 text-xs font-semibold transition ${
@@ -291,7 +366,7 @@ export function MessagesPage() {
           <div className="flex justify-end">
             <button
               className="inline-flex h-10 items-center gap-2 rounded-sm bg-[#3b82f6] px-4 text-sm font-semibold text-white transition hover:bg-[#2563eb]"
-              onClick={() => setTemplateEditorOpen(true)}
+              onClick={() => openTemplateEditor()}
               type="button"
             >
               <CommIcon className="size-4" name="plus" />
@@ -300,8 +375,8 @@ export function MessagesPage() {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {templates.map((template) => (
-              <TemplateCard key={template.id} onUse={openTemplate} template={template} />
+            {availableTemplates.map((template) => (
+              <TemplateCard key={template.id} onEdit={openTemplateEditor} onUse={openTemplate} template={template} />
             ))}
           </div>
         </section>
@@ -329,6 +404,7 @@ export function MessagesPage() {
                     className="mt-3 h-8 w-full rounded-sm bg-[#3b82f6] text-xs font-semibold text-white transition hover:bg-[#2563eb]"
                     onClick={() => {
                       setComposer({
+                        patientId: '',
                         patient: campaign.count,
                         phone: '',
                         channel: 'whatsapp',
@@ -363,6 +439,7 @@ export function MessagesPage() {
 
       {composerOpen ? (
         <MessageComposer
+          allowedChannelKeys={allowedChannelKeys}
           draft={composer}
           onChange={setComposer}
           onClose={() => {
@@ -370,19 +447,23 @@ export function MessagesPage() {
             setComposer(emptyMessage)
           }}
           onSubmit={submitMessage}
-          templates={templates}
+          patients={patientOptions}
+          templates={availableTemplates}
         />
       ) : null}
 
       {templateEditorOpen ? (
         <TemplateEditor
+          allowedChannelKeys={allowedChannelKeys}
           draft={templateDraft}
           onChange={setTemplateDraft}
           onClose={() => {
             setTemplateEditorOpen(false)
             setTemplateDraft(emptyTemplate)
+            setEditingTemplateId(null)
           }}
           onSubmit={submitTemplate}
+          title={editingTemplateId ? 'Editar Template' : 'Novo Template'}
         />
       ) : null}
     </div>
@@ -424,7 +505,7 @@ function MessageRow({ message }) {
   )
 }
 
-function TemplateCard({ onUse, template }) {
+function TemplateCard({ onEdit, onUse, template }) {
   const channel = channels[template.channel]
 
   return (
@@ -443,6 +524,7 @@ function TemplateCard({ onUse, template }) {
       <div className="mt-4 flex gap-2">
         <button
           className="h-9 flex-1 rounded-sm border border-[#404040] bg-[#171717] text-xs font-semibold text-[#e5e5e5] transition hover:bg-[#303030]"
+          onClick={() => onEdit(template)}
           type="button"
         >
           Editar
@@ -459,9 +541,34 @@ function TemplateCard({ onUse, template }) {
   )
 }
 
-function MessageComposer({ draft, onChange, onClose, onSubmit, templates }) {
+function MessageComposer({ allowedChannelKeys, draft, onChange, onClose, onSubmit, patients, templates }) {
+  const [patientSearch, setPatientSearch] = useState(draft.patient || '')
+  const filteredPatients = useMemo(() => {
+    const query = normalizeSearch(patientSearch)
+    if (!query) return patients
+
+    return patients.filter((patient) =>
+      [patient.name, patient.phone, patient.document]
+        .join(' ')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .includes(query),
+    )
+  }, [patientSearch, patients])
+
   function update(field, value) {
     onChange((current) => ({ ...current, [field]: value }))
+  }
+
+  function selectPatient(patient) {
+    onChange((current) => ({
+      ...current,
+      patientId: patient?.id || '',
+      patient: patient?.name || '',
+      phone: patient?.phone || current.phone,
+    }))
+    setPatientSearch(patient?.name || '')
   }
 
   function applyTemplate(templateName) {
@@ -483,20 +590,59 @@ function MessageComposer({ draft, onChange, onClose, onSubmit, templates }) {
   return (
     <ModalFrame onClose={onClose} title="Nova Mensagem">
       <form className="space-y-4" onSubmit={onSubmit}>
+        <DarkField label="Paciente">
+          <div className="space-y-2">
+            <input
+              className={inputClass}
+              onChange={(event) => {
+                setPatientSearch(event.target.value)
+                onChange((current) => ({ ...current, patientId: '', patient: '' }))
+              }}
+              placeholder="Digite nome, CPF ou telefone"
+              type="search"
+              value={patientSearch}
+            />
+            <div className="max-h-44 overflow-y-auto rounded-md border border-[#404040] bg-[#1f1f1f]">
+              {filteredPatients.length ? (
+                filteredPatients.slice(0, 8).map((patient) => {
+                  const isSelected = String(patient.id) === String(draft.patientId)
+                  return (
+                    <button
+                      className={`block w-full px-3 py-2 text-left text-sm transition ${
+                        isSelected ? 'bg-[#3b82f6]/20 text-[#e5e5e5]' : 'text-[#a3a3a3] hover:bg-[#303030] hover:text-[#e5e5e5]'
+                      }`}
+                      key={patient.id}
+                      onClick={() => selectPatient(patient)}
+                      type="button"
+                    >
+                      <span className="block font-semibold">{patient.name}</span>
+                      <span className="mt-0.5 block text-xs text-[#737373]">
+                        {[patient.document, patient.phone].filter(Boolean).join(' | ') || 'Sem documento informado'}
+                      </span>
+                    </button>
+                  )
+                })
+              ) : (
+                <p className="px-3 py-2 text-xs text-[#737373]">Nenhum paciente encontrado.</p>
+              )}
+            </div>
+          </div>
+        </DarkField>
+
         <div className="grid gap-4 md:grid-cols-2">
-          <DarkField label="Paciente">
+          <DarkField label="Paciente selecionado">
             <input
               className={inputClass}
               onChange={(event) => update('patient', event.target.value)}
-              placeholder="Nome do paciente"
+              readOnly
               value={draft.patient}
             />
           </DarkField>
           <DarkField label="Canal">
             <select className={inputClass} onChange={(event) => update('channel', event.target.value)} value={draft.channel}>
-              <option value="whatsapp">WhatsApp</option>
-              <option value="email">E-mail</option>
-              <option value="sms">SMS</option>
+              {allowedChannelKeys.map((key) => (
+                <option key={key} value={key}>{channels[key].label}</option>
+              ))}
             </select>
           </DarkField>
         </div>
@@ -527,7 +673,7 @@ function MessageComposer({ draft, onChange, onClose, onSubmit, templates }) {
           <textarea
             className={textareaClass}
             onChange={(event) => update('content', event.target.value)}
-            placeholder="Escreva a mensagem mockada..."
+            placeholder="Escreva a mensagem"
             value={draft.content}
           />
         </DarkField>
@@ -549,13 +695,13 @@ function MessageComposer({ draft, onChange, onClose, onSubmit, templates }) {
   )
 }
 
-function TemplateEditor({ draft, onChange, onClose, onSubmit }) {
+function TemplateEditor({ allowedChannelKeys, draft, onChange, onClose, onSubmit, title }) {
   function update(field, value) {
     onChange((current) => ({ ...current, [field]: value }))
   }
 
   return (
-    <ModalFrame onClose={onClose} title="Novo Template">
+    <ModalFrame onClose={onClose} title={title}>
       <form className="space-y-4" onSubmit={onSubmit}>
         <div className="grid gap-4 md:grid-cols-2">
           <DarkField label="Nome">
@@ -563,9 +709,9 @@ function TemplateEditor({ draft, onChange, onClose, onSubmit }) {
           </DarkField>
           <DarkField label="Canal">
             <select className={inputClass} onChange={(event) => update('channel', event.target.value)} value={draft.channel}>
-              <option value="whatsapp">WhatsApp</option>
-              <option value="email">E-mail</option>
-              <option value="sms">SMS</option>
+              {allowedChannelKeys.map((key) => (
+                <option key={key} value={key}>{channels[key].label}</option>
+              ))}
             </select>
           </DarkField>
         </div>
@@ -615,6 +761,14 @@ function DarkField({ children, label }) {
       {children}
     </label>
   )
+}
+
+function normalizeSearch(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
 }
 
 function CommIcon({ className = 'size-4', name }) {

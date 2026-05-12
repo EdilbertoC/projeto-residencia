@@ -32,7 +32,7 @@ export const appointmentMapper = {
       cancelled: 'Cancelada',
     }
 
-    const rawStatus = (apiData.status || '').toLowerCase()
+    const rawStatus = String(apiData.status || '').toLowerCase()
     const mappedStatus = statusMap[rawStatus] || apiData.situacao || 'Aguardando'
 
     // Modalidade
@@ -60,12 +60,13 @@ export const appointmentMapper = {
         professional.full_name ||
         professional.name ||
         professional.nome ||
-        'Medico(a)',
+        'Médico(a)',
       date: dateStr,
       time: timeStr,
       type: apiData.type || apiData.tipo || apiData.tipo_consulta || 'Consulta',
       mode: mode,
       status: mappedStatus,
+      notes: apiData.notes || apiData.observations || apiData.observacoes || apiData.observacao || apiData.description || '',
       room: apiData.room || apiData.sala || apiData.local || 'Consultório 1',
     }
   },
@@ -80,7 +81,9 @@ export const appointmentMapper = {
         doctor_id: uiData.professionalId || null,
         scheduled_at: scheduledAt,
         appointment_type: uiData.mode === 'Teleconsulta' ? 'telemedicina' : 'presencial',
-        status: uiData.status === 'Confirmada' ? 'confirmed' : 'requested',
+        status: toApiStatus(uiData.status),
+        notes: emptyToUndefined(uiData.notes),
+        observations: emptyToUndefined(uiData.notes),
         duration_minutes: 30, // Padrao
       }
     }
@@ -94,6 +97,37 @@ export const appointmentMapper = {
       mode: uiData.mode,
       status: uiData.status || 'Confirmada',
       room: uiData.room,
+      notes: uiData.notes,
     }
   },
+}
+
+function emptyToUndefined(value) {
+  return value === '' || value === null ? undefined : value
+}
+
+function toApiStatus(status) {
+  const normalized = String(status || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+
+  const statusMap = {
+    confirmada: 'confirmed',
+    confirmado: 'confirmed',
+    em_triagem: 'checked_in',
+    triagem: 'checked_in',
+    aguardando: 'requested',
+    solicitada: 'requested',
+    solicitacao: 'requested',
+    cancelada: 'cancelled',
+    cancelado: 'cancelled',
+    concluida: 'completed',
+    concluido: 'completed',
+    finalizada: 'completed',
+    finalizado: 'completed',
+  }
+
+  return statusMap[normalized.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')] || 'requested'
 }

@@ -23,23 +23,6 @@ export function HomePage({ navigate }) {
             Bem-vindo, Dr. Henrique. Aqui está o resumo da sua clínica hoje.
           </p>
         </div>
-
-        <div className="flex flex-wrap gap-3">
-          <button
-            className="h-9 rounded-sm border border-[#404040] bg-[#262626] px-4 text-sm font-medium text-[#e5e5e5] transition hover:bg-[#303030]"
-            onClick={() => navigate('/relatorios')}
-            type="button"
-          >
-            Exportar
-          </button>
-          <button
-            className="h-9 rounded-sm border border-[#3b82f6] bg-[#3b82f6] px-4 text-sm font-semibold text-white shadow-[0_10px_15px_rgba(59,130,246,0.16)] transition hover:bg-[#3478ed]"
-            onClick={() => navigate('/agenda')}
-            type="button"
-          >
-            + Novo
-          </button>
-        </div>
       </section>
 
       <section className="grid gap-6 lg:grid-cols-3">
@@ -120,7 +103,7 @@ export function HomePage({ navigate }) {
 
       <section className="grid gap-4" id="relatorios">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-base font-bold text-[#e5e5e5]">Relatórios e Análises</h2>
+          <h2 className="text-base font-bold text-[#e5e5e5]">Analytics</h2>
           <FeatureBadge status="mock" />
         </div>
         <div className="grid gap-4 lg:grid-cols-2">
@@ -209,7 +192,7 @@ function ReportAction({ card, navigate }) {
 
 function LineChart() {
   return (
-    <svg aria-label="Grafico mockado de absenteismo" className="h-full w-full" role="img" viewBox="0 0 732 260">
+    <svg aria-label="Gráfico mockado de absenteísmo" className="h-full w-full" role="img" viewBox="0 0 732 260">
       <defs>
         <linearGradient id="home-chart-fill" x1="0" x2="0" y1="0" y2="1">
           <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.24" />

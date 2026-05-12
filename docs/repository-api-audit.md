@@ -1,49 +1,73 @@
 # Auditoria de Implementacao e Mapeamento da API
 
-Este documento resume o estado atual da integracao entre o front-end e os endpoints da API.
+Este documento resume as APIs do Apidog conectadas no projeto `riseup_squad_03`.
 
-## Integrado no front
+## Autenticacao
 
-- **Autenticacao**
-  - Login com email e senha via Supabase Auth (`/auth/v1/token`).
-  - Solicitar reset de senha: tenta `/solicitar-reset-de-senha` e usa `/auth/v1/recover` como fallback.
-  - Dados do usuario autenticado: tenta `/informacoes-do-usuario-autenticado` e usa `/auth/v1/user` como fallback.
-  - Logout: tenta `/logout`, usa `/auth/v1/logout` como fallback e sempre limpa a sessao local.
+- `POST /auth/v1/token?grant_type=password` em `authRepository.login`
+- `POST /auth/v1/otp` em `authRepository.sendMagicLink`
+- `POST /functions/v1/request-password-reset` em `authRepository.requestPasswordReset`
+- `GET /auth/v1/user` em `authRepository.getUser` como fallback
+- `POST /functions/v1/user-info` em `authRepository.getUser`
+- `POST /auth/v1/logout` em `authRepository.logout`
 
-- **Pacientes**
-  - Listar, criar, atualizar e deletar pacientes via Supabase REST.
-  - Criar paciente com validacao via Edge Function quando disponivel.
+## Usuarios
 
-- **Agendamentos**
-  - Listar agendamentos: tenta `GET /agendamentos` e usa Supabase REST `appointments` como fallback.
-  - Criar agendamento: tenta `POST /agendamentos` e usa Supabase REST `appointments` como fallback.
+- `POST /functions/v1/create-user` em `userRepository.create`
+- `POST /functions/v1/create-user-with-password` em `userRepository.createWithPassword`
+- `POST /functions/v1/user-info-by-id/:id` em `userRepository.getById`
+- `POST /functions/v1/delete-user` em `userRepository.remove`
+- Listagem de perfis via REST em `profiles` / `user_profiles` em `userRepository.getAll`
 
-- **Laudos Medicos**
-  - Listar relatorios: tenta `GET /reports` e usa Supabase REST `reports` como fallback.
-  - Criar relatorio: tenta `POST /reports` e usa Supabase REST `reports` como fallback.
-  - Atualizar relatorio: tenta `PATCH /reports/{id}`, depois `PATCH /reports`, e usa Supabase REST `reports` como fallback.
+## Pacientes
 
-- **Medicos / Profissionais**
-  - Listar medicos: tenta `GET /listar-medicos` e usa Supabase REST `doctors` como fallback.
+- `GET /rest/v1/patients` em `patientRepository.getAll`
+- `POST /rest/v1/patients` em `patientRepository.create`
+- `PATCH /rest/v1/patients?id=eq.ID` em `patientRepository.update`
+- `DELETE /rest/v1/patients?id=eq.ID` em `patientRepository.remove`
+- `POST /functions/v1/create-patient` em `patientRepository.createWithValidation`
+- `POST /functions/v1/register-patient` em `patientRepository.registerPublic`
 
-- **Mensageria**
-  - Enviar SMS: tenta `POST /enviar-sms-via-twilio` e usa Edge Function `send-sms` como fallback.
-  - O formulario agora coleta telefone quando o canal selecionado e SMS.
+## Medicos
 
-- **Storage**
-  - Upload de avatar: tenta `/upload-avatar` e usa Supabase Storage no bucket `avatars` como fallback.
-  - A tela de perfil atualiza a imagem exibida apos upload bem-sucedido.
+- `GET /rest/v1/doctors` em `professionalRepository.getAll`
+- `POST /functions/v1/create-doctor` em `professionalRepository.create`
 
-## Ainda sem endpoint consolidado documentado
+## Agendamentos
 
-- Dashboard / Inicio (`HomePage` / `homeRepository.js`).
-- Estatisticas e BI (`AnalyticsPage` / `analyticsRepository.js`).
-- Prontuarios especificos separados de laudos (`MedicalRecordsPage` / `medicalRecordRepository.js`).
-- Consultas isoladas fora de agendamento (`VisitsPage` / `visitRepository.js`).
-- Configuracoes gerais do tenant (`SettingsPage` / `settingsRepository.js`).
+- `GET /rest/v1/appointments` em `appointmentRepository.getAll`
+- `POST /rest/v1/appointments` em `appointmentRepository.create`
+- `PATCH /rest/v1/appointments?id=eq.ID` em `appointmentRepository.update`
+- Cancelamento via `PATCH /rest/v1/appointments?id=eq.ID` em `appointmentRepository.cancel`
+
+## Disponibilidade e Slots
+
+- `GET /rest/v1/doctor_availability` em `availabilityRepository.getAll`
+- `POST /rest/v1/doctor_availability` em `availabilityRepository.create`
+- `PATCH /rest/v1/doctor_availability?id=eq.ID` em `availabilityRepository.update`
+- `DELETE /rest/v1/doctor_availability?id=eq.ID` em `availabilityRepository.remove`
+- `GET /rest/v1/doctor_exceptions` em `availabilityRepository.getExceptions`
+- `POST /rest/v1/doctor_exceptions` em `availabilityRepository.createException`
+- `POST /functions/v1/get-available-slots` em `availabilityRepository.getAvailableSlots`
+
+## Reports / Laudos Medicos
+
+- `GET /rest/v1/reports` em `reportRepository.getInitialReports`
+- `POST /rest/v1/reports` em `reportRepository.create`
+- `PATCH /rest/v1/reports?id=eq.ID` em `reportRepository.update`
+
+## SMS / Comunicacao
+
+- `POST /functions/v1/send-sms` em `communicationRepository.sendSms`
+
+## Storage
+
+- `POST /storage/v1/object/avatars/{path}` em `profileRepository.updateAvatar`
+- `GET /storage/v1/object/avatars/{path}` em `profileRepository.downloadAvatar`
 
 ## Observacoes
 
-- `VITE_API_BASE_URL` define a base dos endpoints nomeados da API. Quando nao informado, o front usa `VITE_SUPABASE_FUNCTIONS_URL`.
-- Os reposititorios aceitam formatos de resposta comuns como arrays diretos ou objetos com chaves `data`, `reports`, `agendamentos`, `medicos` etc.
-- Os fallbacks existem para manter o front funcional em ambientes onde parte das Edge Functions ainda nao foi publicada.
+- O Supabase real responde as rotas REST em `/rest/v1/...`.
+- As Edge Functions reais respondem em `/functions/v1/...`.
+- Algumas rotas curtas do Apidog retornam `404` no ambiente real; o codigo usa o caminho que respondeu em producao.
+- `Schemas` no Apidog nao sao endpoints executaveis, apenas contratos de dados.

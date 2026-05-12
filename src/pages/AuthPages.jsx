@@ -3,8 +3,15 @@ import { useState } from 'react'
 import { authRepository } from '../repositories/authRepository.js'
 
 import { BrandLogo } from '../components/Brand.jsx'
-import { FeatureBadge, FeatureCallout } from '../components/FeatureState.jsx'
+import { FeatureCallout } from '../components/FeatureState.jsx'
 import loginClinicImage from '../assets/figma/login-clinic.png'
+
+const mockCredentials = [
+  { label: 'Admin', email: 'hugo@popcode.com.br', password: 'hdoria' },
+  { label: 'Médico', email: 'leticia.lacerda@souunit.com.br', password: 'Senha@123' },
+  { label: 'Secretária', email: 'recepcao@mediconnect.com', password: 'demo12345' },
+  { label: 'Gestor', email: 'gestao@mediconnect.com', password: '12345678' },
+]
 
 export function LoginPage({ navigate }) {
   const [form, setForm] = useState({
@@ -12,6 +19,7 @@ export function LoginPage({ navigate }) {
     password: '',
   })
   const [showPassword, setShowPassword] = useState(false)
+  const [credentialsOpen, setCredentialsOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -35,7 +43,7 @@ export function LoginPage({ navigate }) {
   }
 
   return (
-    <main className="min-h-screen bg-[#0a1628] text-white">
+    <main className="auth-dark min-h-screen text-white">
       <div className="grid min-h-screen lg:grid-cols-2">
         <section className="relative hidden min-h-screen overflow-hidden lg:block">
           <img
@@ -48,7 +56,7 @@ export function LoginPage({ navigate }) {
             className="absolute inset-0"
             style={{
               background:
-                'linear-gradient(126.72deg, rgba(10, 22, 40, 0.9) 0%, rgba(10, 22, 40, 0.6) 50%, rgba(59, 130, 246, 0.3) 100%)',
+                'linear-gradient(126.72deg, rgba(10, 10, 10, 0.92) 0%, rgba(23, 23, 23, 0.72) 52%, rgba(59, 130, 246, 0.28) 100%)',
             }}
           />
 
@@ -99,7 +107,7 @@ export function LoginPage({ navigate }) {
               <LoginField htmlFor="login-email" label="E-mail">
                 <input
                   autoComplete="email"
-                  className="h-11 w-full rounded-[6px] border border-white/10 bg-white/[0.05] px-4 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-[#3b82f6] focus:ring-2 focus:ring-[#3b82f6]/20"
+                  className={authInputClass}
                   id="login-email"
                   onChange={(event) => updateField('email', event.target.value)}
                   placeholder="seu@email.com"
@@ -124,7 +132,7 @@ export function LoginPage({ navigate }) {
                 <div className="relative">
                   <input
                     autoComplete="current-password"
-                    className="h-11 w-full rounded-[6px] border border-white/10 bg-white/[0.05] py-2 pl-4 pr-11 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-[#3b82f6] focus:ring-2 focus:ring-[#3b82f6]/20"
+                    className={authPasswordInputClass}
                     id="login-password"
                     onChange={(event) => updateField('password', event.target.value)}
                     placeholder="••••••••"
@@ -152,23 +160,45 @@ export function LoginPage({ navigate }) {
             </form>
           </div>
 
-          <button
-            className="absolute bottom-4 right-4 flex h-[29px] items-center gap-1.5 rounded-sm border border-white/10 bg-white/[0.05] px-3 font-mono text-[10px] font-medium leading-[15px] text-white/30 transition hover:text-white/50"
-            onClick={() => {
-              setForm({
-                email: 'recepcao@mediconnect.com',
-                password: 'demo123',
-              })
-            }}
-            title="Preencher credenciais mockadas"
-            type="button"
-          >
-            dev · credenciais
-            <FeatureBadge className="border-white/20 bg-white/10 text-white/70" status="mock" text="mock" />
-            <span aria-hidden="true" className="text-[9px]">
-              ^
-            </span>
-          </button>
+          <div className="absolute bottom-4 right-4">
+            {credentialsOpen ? (
+              <div className="auth-menu mb-2 w-[292px] rounded-md border p-2 shadow-2xl">
+                <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-white/40">
+                  Credenciais de acesso
+                </p>
+                <div className="grid gap-1">
+                  {mockCredentials.map((credential) => (
+                    <button
+                      className="rounded px-2 py-2 text-left text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
+                      key={credential.email}
+                      onClick={() => {
+                        setForm({
+                          email: credential.email,
+                          password: credential.password,
+                        })
+                        setCredentialsOpen(false)
+                      }}
+                      type="button"
+                    >
+                      <span className="block font-semibold">{credential.label}</span>
+                      <span className="block font-mono text-[11px] text-white/40">{credential.email}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <button
+              className="auth-menu flex h-[29px] items-center gap-1.5 rounded-sm border px-3 font-mono text-[10px] font-medium leading-[15px] transition"
+              onClick={() => setCredentialsOpen((current) => !current)}
+              title="Preencher credenciais de acesso"
+              type="button"
+            >
+              dev · credenciais
+              <span aria-hidden="true" className="text-[9px]">
+                {credentialsOpen ? 'v' : '^'}
+              </span>
+            </button>
+          </div>
         </section>
       </div>
     </main>
@@ -176,7 +206,7 @@ export function LoginPage({ navigate }) {
 }
 
 export function RegisterPage({ navigate }) {
-  const [role, setRole] = useState('Clinica')
+  const [role, setRole] = useState('Clínica')
 
   return (
     <AuthLayout
@@ -204,7 +234,7 @@ export function RegisterPage({ navigate }) {
         </AuthField>
         <AuthField label="Tipo de conta">
           <div className="grid grid-cols-2 gap-2">
-            {['Clinica', 'Profissional'].map((option) => (
+            {['Clínica', 'Profissional'].map((option) => (
               <button
                 className={`h-11 rounded-[6px] border px-3 text-sm font-semibold transition ${
                   role === option
@@ -291,7 +321,7 @@ export function ForgotPasswordPage({ navigate }) {
 
 function AuthLayout({ children, description, title }) {
   return (
-    <main className="min-h-screen bg-[#0a1628] text-white">
+    <main className="auth-dark min-h-screen text-white">
       <div className="grid min-h-screen lg:grid-cols-2">
         <section className="relative hidden min-h-screen overflow-hidden lg:block">
           <img alt="" className="absolute inset-0 h-full w-full object-cover" src={loginClinicImage} />
@@ -300,7 +330,7 @@ function AuthLayout({ children, description, title }) {
             className="absolute inset-0"
             style={{
               background:
-                'linear-gradient(126.72deg, rgba(10, 22, 40, 0.9) 0%, rgba(10, 22, 40, 0.6) 50%, rgba(59, 130, 246, 0.3) 100%)',
+                'linear-gradient(126.72deg, rgba(10, 10, 10, 0.92) 0%, rgba(23, 23, 23, 0.72) 52%, rgba(59, 130, 246, 0.28) 100%)',
             }}
           />
           <div className="relative flex min-h-screen flex-col justify-between px-[43px] py-[43px] xl:px-12 xl:py-12">
@@ -314,14 +344,14 @@ function AuthLayout({ children, description, title }) {
                 <span className="text-[#3b82f6]">saúde.</span>
               </h1>
               <p className="mt-5 max-w-[360px] text-sm leading-[23px] text-white/60 xl:text-base xl:leading-[26px]">
-                Fluxos de acesso simulados para manter a navegação ponta a ponta sem backend real.
+                Segurança e continuidade para equipes de saúde.
               </p>
             </div>
           </div>
         </section>
 
         <section className="flex min-h-screen items-center justify-center px-6 py-12 sm:px-10 lg:px-[60px] xl:px-[68px]">
-          <div className="w-full max-w-[448px]">
+          <div className="w-full max-w-[448px] lg:translate-y-3">
             <div className="mb-12 lg:hidden">
               <LoginLogo />
             </div>
@@ -336,11 +366,13 @@ function AuthLayout({ children, description, title }) {
 }
 
 const authInputClass =
-  'h-11 w-full rounded-[6px] border border-white/10 bg-white/[0.05] px-4 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-[#3b82f6] focus:ring-2 focus:ring-[#3b82f6]/20'
+  'auth-input h-11 w-full rounded-[6px] border px-4 text-sm outline-none transition focus:border-[#3b82f6] focus:ring-2 focus:ring-[#3b82f6]/20'
+const authPasswordInputClass =
+  'auth-input h-11 w-full rounded-[6px] border py-2 pl-4 pr-11 text-sm outline-none transition focus:border-[#3b82f6] focus:ring-2 focus:ring-[#3b82f6]/20'
 
 function AuthField({ children, label }) {
   return (
-    <label className="grid gap-1.5 text-xs font-medium leading-4 text-white/50">
+    <label className="grid gap-1.5 text-xs font-medium leading-4 text-[#a3a3a3]">
       <span>{label}</span>
       {children}
     </label>
@@ -350,7 +382,7 @@ function AuthField({ children, label }) {
 function LoginField({ action, children, htmlFor, label }) {
   return (
     <div className="grid gap-1.5">
-      <span className="flex min-h-4 items-center justify-between gap-4 text-xs font-medium leading-4 text-white/50">
+      <span className="flex min-h-4 items-center justify-between gap-4 text-xs font-medium leading-4 text-[#a3a3a3]">
         <label htmlFor={htmlFor}>{label}</label>
         {action}
       </span>

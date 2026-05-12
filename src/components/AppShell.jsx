@@ -1,22 +1,26 @@
 import { useEffect, useMemo, useState } from 'react'
 
+import { ROLE_LABELS, ROLE_NAV_ITEMS } from '../config/permissions.js'
+import { authRepository } from '../repositories/authRepository.js'
 import { profileRepository } from '../repositories/profileRepository.js'
 import { BrandLogo } from './Brand.jsx'
 
-const navItems = [
+// Todos os itens de navegação com seus ícones e metadados
+const ALL_NAV_ITEMS = [
   { href: '/inicio', label: 'Painel', icon: 'pulse', activePaths: ['/inicio', '/home', '/dashboard'] },
   { href: '/agenda', label: 'Agenda', icon: 'calendar' },
   { href: '/pacientes', label: 'Pacientes', icon: 'users', exact: true },
-  { href: '/prontuario', label: 'Prontuario', icon: 'file' },
-  { href: '/laudos', label: 'Relatorios medicos', icon: 'clipboard' },
+  { href: '/prontuario', label: 'Prontuário', icon: 'file' },
+  { href: '/laudos', label: 'Relatórios', icon: 'clipboard' },
   {
-    href: '/camunicacao',
-    label: 'Comunicacao',
+    href: '/comunicacao',
+    label: 'Comunicação',
     icon: 'message',
-    activePaths: ['/camunicacao', '/comunicacao', '/mensagens'],
+    activePaths: ['/comunicacao', '/mensagens'],
   },
-  { href: '/relatorios', label: 'Relatorios', icon: 'chart' },
-  { href: '/configuracoes', label: 'Configuracoes', icon: 'settings', activePaths: ['/configuracoes', '/config'] },
+  { href: '/relatorios', label: 'Analytics', icon: 'chart' },
+  { href: '/usuarios', label: 'Usuários', icon: 'shield' },
+  { href: '/configuracoes', label: 'Configurações', icon: 'settings', activePaths: ['/configuracoes', '/config'] },
 ]
 
 const titles = {
@@ -25,23 +29,24 @@ const titles = {
   '/dashboard': 'Painel',
   '/agenda': 'Agenda',
   '/consultas': 'Consultas',
-  '/laudos': 'Relatorios medicos',
+  '/laudos': 'Relatórios',
   '/pacientes': 'Pacientes',
-  '/prontuario': 'Prontuario',
-  '/camunicacao': 'Comunicacao',
-  '/comunicacao': 'Comunicacao',
-  '/mensagens': 'Comunicacao',
-  '/relatorios': 'Relatorios',
-  '/profissionais': 'Profissionais',
+  '/prontuario': 'Prontuário',
+  '/comunicacao': 'Comunicação',
+  '/mensagens': 'Comunicação',
+  '/relatorios': 'Analytics',
   '/perfil': 'Perfil',
-  '/configuracoes': 'Configuracoes',
-  '/config': 'Configuracoes',
+  '/configuracoes': 'Configurações',
+  '/config': 'Configurações',
+  '/usuarios': 'Usuários',
 }
 
-export function AppShell({ children, currentPath, navigate, routeTitle }) {
+export function AppShell({ children, currentPath, navigate, role, routeTitle }) {
   const [menuOpen, setMenuOpen] = useState(false)
-  const [quickSearch, setQuickSearch] = useState('')
-  const [viewerProfile, setViewerProfile] = useState({ name: 'Usuario', role: 'Usuario do Sistema' })
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false)
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [viewerProfile, setViewerProfile] = useState({ name: 'Usuário', role: 'Usuário do Sistema' })
 
   const pageTitle = useMemo(() => {
     if (currentPath.startsWith('/pacientes/') && routeTitle) {
@@ -51,28 +56,96 @@ export function AppShell({ children, currentPath, navigate, routeTitle }) {
     return routeTitle || titles[currentPath] || 'MediConnect'
   }, [currentPath, routeTitle])
 
+  // Filtra os itens de navegação com base no role do usuário
+  const navItems = useMemo(() => {
+    if (!role) return []
+
+    const allowedPaths = ROLE_NAV_ITEMS[role]?.map((item) => item.path) ?? []
+
+    return ALL_NAV_ITEMS.filter((item) =>
+      allowedPaths.some(
+        (allowed) => item.href === allowed || item.activePaths?.includes(allowed),
+      ),
+    )
+  }, [role])
+
+  const canOpenSettings = useMemo(
+    () =>
+      (ROLE_NAV_ITEMS[role] ?? []).some(
+        (item) => item.path === '/configuracoes' || item.path === '/config',
+      ),
+    [role],
+  )
+  const mockNotifications = useMemo(
+    () => [
+      { id: 'mock-1', title: 'Retorno agendado', detail: 'Paciente Ana Souza às 14:30', time: 'Agora' },
+      { id: 'mock-2', title: 'Laudo pendente', detail: 'Hemograma aguardando revisão', time: '12 min' },
+      { id: 'mock-3', title: 'Mensagem recebida', detail: 'Resposta via WhatsApp registrada', time: '35 min' },
+    ],
+    [],
+  )
+
   useEffect(() => {
     let active = true
 
-    profileRepository.getCurrentUserProfile()
+    profileRepository
+      .getCurrentUserProfile()
       .then((profile) => {
         if (!active || !profile) return
 
         setViewerProfile({
-          name: profile.name || 'Usuario',
-          role: profile.role || 'Usuario do Sistema',
+          name: profile.name || 'Usuário',
+          role: ROLE_LABELS[role] || profile.role || 'Usuário do Sistema',
         })
       })
-      .catch(() => {})
+      .catch(() => {
+        // Fallback: usa o label do role diretamente
+        if (active && role) {
+          setViewerProfile((prev) => ({
+            ...prev,
+            role: ROLE_LABELS[role] || 'Usuário do Sistema',
+          }))
+        }
+      })
 
     return () => {
       active = false
     }
-  }, [])
+  }, [role])
+
+  useEffect(() => {
+    if (!profileMenuOpen && !notificationsOpen) return undefined
+
+    function closeOnEscape(event) {
+      if (event.key === 'Escape') {
+        setProfileMenuOpen(false)
+        setNotificationsOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [notificationsOpen, profileMenuOpen])
 
   function goTo(path) {
     setMenuOpen(false)
+    setProfileMenuOpen(false)
+    setNotificationsOpen(false)
     navigate(path)
+  }
+
+  async function handleLogout() {
+    setProfileMenuOpen(false)
+    await authRepository.logout()
+    navigate('/login', { replace: true })
+  }
+
+  function toggleSidebarCollapsed() {
+    if (typeof window !== 'undefined' && !window.matchMedia('(min-width: 1024px)').matches) {
+      return
+    }
+
+    setSidebarCollapsed((current) => !current)
   }
 
   return (
@@ -81,19 +154,23 @@ export function AppShell({ children, currentPath, navigate, routeTitle }) {
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-[#262626] focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-[#3b82f6]"
         href="#app-content"
       >
-        Pular para conteudo
+        Pular para conteúdo
       </a>
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 -translate-x-full flex-col border-r border-[#404040] bg-[#262626] transition-transform duration-200 lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-56 -translate-x-full flex-col border-r border-[#404040] bg-[#262626] transition-all duration-200 lg:translate-x-0 ${
+          sidebarCollapsed ? 'lg:w-16' : 'lg:w-56'
+        } ${
           menuOpen ? 'translate-x-0' : ''
         }`}
       >
-        <div className="flex h-16 items-center border-b border-[#404040] px-3">
+        <div className={`flex h-16 items-center border-b border-[#404040] px-3 ${sidebarCollapsed ? 'lg:justify-center' : ''}`}>
           <BrandLogo
             iconClassName="size-8 rounded-sm"
+            iconButtonLabel={sidebarCollapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
             markClassName="size-5"
-            textClassName="text-xl font-bold leading-7 tracking-[-0.025em] text-[#e5e5e5]"
+            onIconClick={toggleSidebarCollapsed}
+            textClassName={`text-xl font-bold leading-7 tracking-[-0.025em] text-[#e5e5e5] ${sidebarCollapsed ? 'lg:hidden' : ''}`}
           />
         </div>
 
@@ -105,6 +182,7 @@ export function AppShell({ children, currentPath, navigate, routeTitle }) {
                 item={item}
                 key={`${item.label}-${item.href}`}
                 onNavigate={goTo}
+                sidebarCollapsed={sidebarCollapsed}
               />
             ))}
           </div>
@@ -112,12 +190,21 @@ export function AppShell({ children, currentPath, navigate, routeTitle }) {
 
         <div className="p-3">
           <button
-            className="w-full rounded-md border border-[#404040] bg-[#303030] px-3 py-2.5 text-left transition hover:border-[#525252] hover:bg-[#333333]"
+            className={`w-full rounded-md border border-[#404040] bg-[#303030] text-left transition hover:border-[#525252] hover:bg-[#333333] ${
+              sidebarCollapsed ? 'grid h-10 place-items-center px-0 py-0 lg:rounded-full' : 'px-3 py-2.5'
+            }`}
             onClick={() => goTo('/perfil')}
+            title={sidebarCollapsed ? `${viewerProfile.name} - ${viewerProfile.role}` : undefined}
             type="button"
           >
-            <p className="truncate text-xs font-semibold text-[#e5e5e5]">{viewerProfile.name}</p>
-            <p className="mt-0.5 truncate text-[11px] leading-4 text-[#a3a3a3]">{viewerProfile.role}</p>
+            {sidebarCollapsed ? (
+              <span className="text-xs font-bold text-[#3b82f6]">{getInitials(viewerProfile.name)}</span>
+            ) : (
+              <>
+                <p className="truncate text-xs font-semibold text-[#e5e5e5]">{viewerProfile.name}</p>
+                <p className="mt-0.5 truncate text-[11px] leading-4 text-[#a3a3a3]">{viewerProfile.role}</p>
+              </>
+            )}
           </button>
         </div>
       </aside>
@@ -131,7 +218,7 @@ export function AppShell({ children, currentPath, navigate, routeTitle }) {
         />
       ) : null}
 
-      <div className="lg:pl-64">
+      <div className={`transition-[padding] duration-200 ${sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-56'}`}>
         <header className="sticky top-0 z-20 h-auto border-b border-[#404040] bg-[#262626] px-4 py-3 md:px-8 lg:h-16 lg:py-0">
           <div className="flex h-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex min-w-0 items-center gap-3">
@@ -143,57 +230,132 @@ export function AppShell({ children, currentPath, navigate, routeTitle }) {
               >
                 Menu
               </button>
-              <div className="relative w-full max-w-sm lg:w-96">
-                <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#a3a3a3]" />
-                <input
-                  aria-label="Busca rapida"
-                  className="h-[38px] w-full rounded-sm border border-[#404040] bg-[#303030] py-2 pl-10 pr-4 text-sm text-[#e5e5e5] outline-none transition placeholder:text-[#a3a3a3] focus:border-[#3b82f6] focus:ring-2 focus:ring-[#3b82f6]/20"
-                  onChange={(event) => setQuickSearch(event.target.value)}
-                  placeholder="Buscar paciente, prontuario..."
-                  value={quickSearch}
-                />
-              </div>
             </div>
 
             <div className="flex items-center gap-6">
-              <button
-                aria-label="Notificacoes"
-                className="relative grid size-8 place-items-center text-[#a3a3a3] transition hover:text-[#e5e5e5]"
-                type="button"
-              >
-                <BellIcon className="size-5" />
-                <span className="absolute right-0 top-0 grid size-4 place-items-center rounded-full bg-[#ef4444] text-[10px] font-bold leading-none text-white">
-                  3
-                </span>
-              </button>
+              <div className="relative z-30">
+                <button
+                  aria-expanded={notificationsOpen}
+                  aria-haspopup="menu"
+                  aria-label="Notificações"
+                  className="relative grid size-8 place-items-center text-[#a3a3a3] transition hover:text-[#e5e5e5]"
+                  onClick={() => {
+                    setNotificationsOpen((open) => !open)
+                    setProfileMenuOpen(false)
+                  }}
+                  type="button"
+                >
+                  <BellIcon className="size-5" />
+                  <span className="absolute right-0 top-0 grid size-4 place-items-center rounded-full bg-[#ef4444] text-[10px] font-bold leading-none text-white">
+                    {mockNotifications.length}
+                  </span>
+                </button>
+
+                {notificationsOpen ? (
+                  <div
+                    aria-label="Notificações mock"
+                    className="absolute right-0 top-12 z-30 w-80 rounded-md border border-[#404040] bg-[#262626] p-2 shadow-2xl shadow-black/30"
+                    role="menu"
+                  >
+                    <div className="flex items-center justify-between px-2 py-2">
+                      <p className="text-sm font-semibold text-[#e5e5e5]">Notificações</p>
+                      <span className="feature-badge-mock rounded border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-amber-300">
+                        Mock
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      {mockNotifications.map((notification) => (
+                        <button
+                          className="w-full rounded-sm border border-transparent px-2 py-2 text-left transition hover:border-[#404040] hover:bg-[#303030]"
+                          key={notification.id}
+                          role="menuitem"
+                          type="button"
+                        >
+                          <span className="flex items-start justify-between gap-3">
+                            <span className="min-w-0">
+                              <span className="block text-sm font-semibold text-[#e5e5e5]">{notification.title}</span>
+                              <span className="mt-0.5 block text-xs leading-5 text-[#a3a3a3]">{notification.detail}</span>
+                            </span>
+                            <span className="shrink-0 text-[10px] font-semibold text-[#51a2ff]">{notification.time}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
 
               <span className="hidden h-6 w-px bg-[#404040] sm:block" aria-hidden="true" />
 
-              <button
-                className="flex min-w-0 items-center gap-3 text-left"
-                onClick={() => goTo('/perfil')}
-                type="button"
-              >
-                <span className="grid size-8 shrink-0 place-items-center rounded-full border border-[#3b82f6]/30 bg-[#3b82f6]/15 text-xs font-bold text-[#3b82f6]">
-                  {getInitials(viewerProfile.name)}
-                </span>
-                <span className="hidden min-w-0 sm:block">
-                  <span className="block truncate text-sm font-semibold leading-4 text-[#e5e5e5]">
-                    {viewerProfile.name}
+              <div className="relative z-30">
+                <button
+                  aria-expanded={profileMenuOpen}
+                  aria-haspopup="menu"
+                  className="flex min-w-0 items-center gap-3 rounded-sm px-1.5 py-1 text-left transition hover:bg-[#303030] focus:outline-none focus:ring-2 focus:ring-[#3b82f6]/40"
+                  onClick={() => {
+                    setProfileMenuOpen((open) => !open)
+                    setNotificationsOpen(false)
+                  }}
+                  type="button"
+                >
+                  <span className="grid size-8 shrink-0 place-items-center rounded-full border border-[#3b82f6]/30 bg-[#3b82f6]/15 text-xs font-bold text-[#3b82f6]">
+                    {getInitials(viewerProfile.name)}
                   </span>
-                  <span className="mt-0.5 block truncate text-[11px] font-medium leading-4 text-[#51a2ff]">
-                    {viewerProfile.role}
+                  <span className="hidden min-w-0 sm:block">
+                    <span className="block max-w-40 truncate text-sm font-semibold leading-4 text-[#e5e5e5]">
+                      {viewerProfile.name}
+                    </span>
+                    <span className="mt-0.5 block max-w-40 truncate text-[11px] font-medium leading-4 text-[#51a2ff]">
+                      {viewerProfile.role}
+                    </span>
                   </span>
-                </span>
-                <ChevronDownIcon className="hidden size-4 text-[#a3a3a3] sm:block" />
-              </button>
+                  <ChevronDownIcon className="hidden size-4 text-[#a3a3a3] sm:block" />
+                </button>
+
+                {profileMenuOpen ? (
+                  <div
+                    aria-label="Menu do usuário"
+                    className="absolute right-0 top-12 z-30 w-56 rounded-md border border-[#404040] bg-[#262626] p-1 shadow-2xl shadow-black/30"
+                    role="menu"
+                  >
+                    <button
+                      className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm font-medium text-[#e5e5e5] transition hover:bg-[#303030]"
+                      onClick={() => goTo('/perfil')}
+                      role="menuitem"
+                      type="button"
+                    >
+                      <UserIcon className="size-4 text-[#a3a3a3]" />
+                      Ver perfil
+                    </button>
+
+                    {canOpenSettings ? (
+                      <button
+                        className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm font-medium text-[#e5e5e5] transition hover:bg-[#303030]"
+                        onClick={() => goTo('/configuracoes')}
+                        role="menuitem"
+                        type="button"
+                      >
+                        <AppIcon className="size-4 text-[#a3a3a3]" name="settings" />
+                        Configurações
+                      </button>
+                    ) : null}
+
+                    <div className="my-1 h-px bg-[#404040]" />
+
+                    <button
+                      className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm font-medium text-[#f87171] transition hover:bg-[#303030]"
+                      onClick={handleLogout}
+                      role="menuitem"
+                      type="button"
+                    >
+                      <LogoutIcon className="size-4" />
+                      Sair
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
-          {quickSearch ? (
-            <div className="mt-3 rounded-md border border-[#404040] bg-[#303030] px-4 py-3 text-sm text-[#a3a3a3] lg:absolute lg:left-8 lg:top-[52px] lg:w-96">
-              Busca local ativa por <strong className="text-[#e5e5e5]">{quickSearch}</strong>.
-            </div>
-          ) : null}
         </header>
 
         <main className="w-full px-4 py-6 md:px-8 md:py-8" id="app-content">
@@ -207,10 +369,11 @@ export function AppShell({ children, currentPath, navigate, routeTitle }) {
   )
 }
 
-function NavItem({ active, item, onNavigate }) {
+function NavItem({ active, item, onNavigate, sidebarCollapsed = false }) {
   return (
     <a
       aria-current={active ? 'page' : undefined}
+      aria-label={sidebarCollapsed ? item.label : undefined}
       className={`flex h-9 items-center gap-3 rounded-sm px-2 text-sm font-medium transition ${
         active ? 'bg-[#3b82f6]/10 text-[#3b82f6]' : 'text-[#a3a3a3] hover:bg-[#303030] hover:text-[#e5e5e5]'
       }`}
@@ -219,9 +382,10 @@ function NavItem({ active, item, onNavigate }) {
         event.preventDefault()
         onNavigate(item.href)
       }}
+      title={sidebarCollapsed ? item.label : undefined}
     >
-      <AppIcon className="size-5 shrink-0" name={item.icon} />
-      <span>{item.label}</span>
+      <AppIcon className={`size-5 shrink-0 ${sidebarCollapsed ? 'lg:mx-auto' : ''}`} name={item.icon} />
+      <span className={sidebarCollapsed ? 'lg:hidden' : ''}>{item.label}</span>
     </a>
   )
 }
@@ -303,10 +467,10 @@ function AppIcon({ className = 'size-5', name }) {
     )
   }
 
-  if (name === 'dollar') {
+  if (name === 'shield') {
     return (
       <svg {...common}>
-        <path d="M12 2v20M17 6.5C15.8 5.4 14.2 5 12.5 5 9.9 5 8 6.2 8 8s1.6 2.7 4.2 3.3C15 12 17 13 17 15.5S14.8 19 12 19c-2 0-3.8-.6-5-1.8" />
+        <path d="M12 3 5 6v5c0 4.5 3 8.5 7 10 4-1.5 7-5.5 7-10V6l-7-3Z" />
       </svg>
     )
   }
@@ -336,19 +500,29 @@ function BellIcon({ className = 'size-5' }) {
   )
 }
 
-function ChevronDownIcon({ className = 'size-4' }) {
+function UserIcon({ className = 'size-4' }) {
   return (
     <svg className={className} fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24">
-      <path d="m6 9 6 6 6-6" />
+      <path d="M20 21a8 8 0 0 0-16 0" />
+      <circle cx="12" cy="7" r="4" />
     </svg>
   )
 }
 
-function SearchIcon({ className = 'size-4' }) {
+function LogoutIcon({ className = 'size-4' }) {
   return (
     <svg className={className} fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24">
-      <path d="m21 21-4.3-4.3" />
-      <circle cx="11" cy="11" r="7" />
+      <path d="M10 17 15 12l-5-5" />
+      <path d="M15 12H3" />
+      <path d="M21 3v18" />
+    </svg>
+  )
+}
+
+function ChevronDownIcon({ className = 'size-4' }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24">
+      <path d="m6 9 6 6 6-6" />
     </svg>
   )
 }

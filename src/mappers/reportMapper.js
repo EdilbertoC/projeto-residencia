@@ -27,6 +27,7 @@ export const reportMapper = {
   toApi(uiData) {
     return cleanPayload({
       patient_id: uiData.patientId,
+      order_number: emptyToUndefined(uiData.orderNumber),
       status: normalizeApiStatus(uiData.status),
       exam: emptyToUndefined(uiData.exam),
       requested_by: emptyToUndefined(uiData.requestedBy),
@@ -35,19 +36,24 @@ export const reportMapper = {
       conclusion: emptyToUndefined(uiData.conclusion),
       content_html: emptyToUndefined(uiData.contentHtml),
       content_json: uiData.contentJson === undefined ? undefined : uiData.contentJson,
-      hide_date: Boolean(uiData.hideDate),
-      hide_signature: Boolean(uiData.hideSignature),
       due_at: emptyToUndefined(uiData.dueAt),
+      created_by: emptyToUndefined(uiData.createdBy),
+      updated_by: emptyToUndefined(uiData.updatedBy),
     })
   },
 }
 
 function normalizeStatus(status) {
-  return status === 'draft' ? 'draft' : 'draft'
+  const normalized = String(status || '').toLowerCase()
+  if (['finalized', 'finalizado', 'finished', 'completed', 'done'].includes(normalized)) {
+    return 'finalized'
+  }
+
+  return 'draft'
 }
 
 function normalizeApiStatus(status) {
-  return status === 'draft' ? 'draft' : 'draft'
+  return status === 'finalized' ? 'finalized' : 'draft'
 }
 
 function emptyToUndefined(value) {

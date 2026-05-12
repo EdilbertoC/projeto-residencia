@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
-import { FeatureCallout } from '../components/FeatureState.jsx'
 import { settingsRepository } from '../repositories/settingsRepository.js'
+import { getStoredTheme, setStoredTheme } from '../utils/theme.js'
 
 
 const cardClass = 'rounded-2xl border border-[#404040] bg-[#262626] shadow-sm'
@@ -15,13 +15,6 @@ export function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-5xl">
-      <FeatureCallout
-        className="mb-6"
-        description="Preferências, integrações e backup ainda são protótipos locais, sem persistência real."
-        status="mock"
-        title="Configurações ainda estão em modo protótipo"
-      />
-
       <header className="mb-8">
         <h1 className="text-2xl font-bold tracking-tight text-[#f5f5f5]">Configurações</h1>
         <p className="mt-1 text-sm text-[#b8b8b8]">Gerencie preferências, segurança e integrações do MediConnect</p>
@@ -53,10 +46,7 @@ export function SettingsPage() {
 
         <section className={`${cardClass} min-w-0 flex-1 p-6 lg:p-8`}>
           {activeSection === 'aparencia' ? <AppearanceSection /> : null}
-          {activeSection === 'notificacoes' ? <NotificationsSection /> : null}
           {activeSection === 'privacidade' ? <PrivacySection /> : null}
-          {activeSection === 'conta' ? <AccountSection /> : null}
-          {activeSection === 'integracoes' ? <IntegrationsSection /> : null}
           {activeSection === 'dados' ? <DataSection /> : null}
         </section>
       </div>
@@ -65,35 +55,43 @@ export function SettingsPage() {
 }
 
 function AppearanceSection() {
-  const [theme, setTheme] = useState('dark')
+  const [theme, setTheme] = useState(() => getStoredTheme())
   const [compact, setCompact] = useState(false)
   const [contrast, setContrast] = useState(false)
   const [animations, setAnimations] = useState(true)
 
+  function handleThemeChange(nextTheme) {
+    setTheme(setStoredTheme(nextTheme))
+  }
+
   return (
-    <SectionFrame description="Personalize a interface do MediConnect." title="Aparência">
+    <SectionFrame description="Personalize a interface do MediConnect." title="Aparência e Acessibilidade">
       <div className="mb-8">
         <p className="mb-4 text-sm font-semibold text-[#e5e5e5]">Tema da Interface</p>
         <div className="grid max-w-xl gap-4 sm:grid-cols-2">
           {[
-            { id: 'dark', label: 'Escuro', preview: 'bg-[#0a1628]' },
+            { id: 'dark', label: 'Escuro', preview: 'bg-[#0a0a0a]' },
             { id: 'light', label: 'Claro', preview: 'bg-[#f4f7fb]' },
           ].map((item) => (
             <button
               className={`rounded-2xl border-2 p-4 text-left transition ${
-                theme === item.id ? 'border-[#3b82f6] bg-[#3b82f6]/5 shadow-md shadow-[#3b82f6]/20' : 'border-[#404040] bg-[#262626] hover:border-[#3b82f6]/40'
+                theme === item.id
+                  ? item.id === 'dark'
+                    ? 'border-[#737373] bg-[#171717] shadow-md shadow-black/30'
+                    : 'border-[#3b82f6] bg-[#3b82f6]/5 shadow-md shadow-[#3b82f6]/20'
+                  : 'border-[#404040] bg-[#262626] hover:border-[#737373]'
               }`}
               key={item.id}
-              onClick={() => setTheme(item.id)}
+              onClick={() => handleThemeChange(item.id)}
               type="button"
             >
-              <span className={`mb-3 flex h-20 flex-col gap-1.5 overflow-hidden rounded-xl border border-[#404040] p-2 ${item.preview}`}>
-                <span className={`h-2.5 rounded ${item.id === 'dark' ? 'bg-[#1a3050]' : 'bg-white'}`} />
+              <span className={`settings-theme-preview ${item.id === 'dark' ? 'settings-theme-preview-dark' : 'settings-theme-preview-light'} mb-3 flex h-20 flex-col gap-1.5 overflow-hidden rounded-xl border border-[#404040] p-2 ${item.preview}`}>
+                <span className={`settings-theme-preview-bar h-2.5 rounded ${item.id === 'dark' ? 'bg-[#262626]' : 'bg-white'}`} />
                 <span className="flex flex-1 gap-1">
-                  <span className={`w-8 rounded ${item.id === 'dark' ? 'bg-[#0f1f36]' : 'bg-white'}`} />
+                  <span className={`settings-theme-preview-side w-8 rounded ${item.id === 'dark' ? 'bg-[#171717]' : 'bg-white'}`} />
                   <span className="flex flex-1 flex-col justify-center gap-1">
-                    <span className={`h-1.5 w-3/4 rounded-full ${item.id === 'dark' ? 'bg-[#1e3a5f]' : 'bg-[#dde8f7]'}`} />
-                    <span className={`h-1.5 w-1/2 rounded-full ${item.id === 'dark' ? 'bg-[#1e3a5f]' : 'bg-[#dde8f7]'}`} />
+                    <span className={`settings-theme-preview-line h-1.5 w-3/4 rounded-full ${item.id === 'dark' ? 'bg-[#525252]' : 'bg-[#dde8f7]'}`} />
+                    <span className={`settings-theme-preview-line h-1.5 w-1/2 rounded-full ${item.id === 'dark' ? 'bg-[#404040]' : 'bg-[#dde8f7]'}`} />
                   </span>
                 </span>
               </span>
@@ -125,50 +123,6 @@ function AppearanceSection() {
           </select>
         </SettingRow>
       </SettingsGroup>
-    </SectionFrame>
-  )
-}
-
-function NotificationsSection() {
-  const [settings, setSettings] = useState({
-    email: true,
-    sms: true,
-    whatsapp: true,
-    push: false,
-    ai: true,
-    appointment: true,
-    report: true,
-    noShow: true,
-  })
-
-  return (
-    <SectionFrame description="Configure como e quando deseja receber alertas." title="Notificações">
-      <Subsection title="Canais de Comunicação">
-        <ToggleRow checked={settings.email} description="Receba resumos e alertas via e-mail" label="Notificações por E-mail" onChange={(value) => setSettings((current) => ({ ...current, email: value }))} />
-        <ToggleRow checked={settings.sms} description="Alertas urgentes via mensagem de texto" label="SMS" onChange={(value) => setSettings((current) => ({ ...current, sms: value }))} />
-        <ToggleRow checked={settings.whatsapp} description="Integração com WhatsApp Business para lembretes" label="WhatsApp" onChange={(value) => setSettings((current) => ({ ...current, whatsapp: value }))} />
-        <ToggleRow checked={settings.push} description="Notificações no navegador em tempo real" label="Push (navegador)" onChange={(value) => setSettings((current) => ({ ...current, push: value }))} />
-      </Subsection>
-
-      <Subsection title="Tipos de Alerta">
-        <ToggleRow checked={settings.ai} description="Alerta preditivo quando paciente tem alto risco de faltar" label="Risco de No-Show (IA)" onChange={(value) => setSettings((current) => ({ ...current, ai: value }))} />
-        <ToggleRow checked={settings.appointment} description="Lembre pacientes 24h e 1h antes da consulta" label="Lembrete de Consulta" onChange={(value) => setSettings((current) => ({ ...current, appointment: value }))} />
-        <ToggleRow checked={settings.report} description="Notificar quando relatórios mensais estiverem prontos" label="Relatório Disponível" onChange={(value) => setSettings((current) => ({ ...current, report: value }))} />
-        <ToggleRow checked={settings.noShow} description="Confirmar quando uma falta é registrada no sistema" label="No-Show registrado" onChange={(value) => setSettings((current) => ({ ...current, noShow: value }))} />
-      </Subsection>
-
-      <Subsection title="Horário Silencioso">
-        <SettingRow description="Sem notificações push entre 22h e 7h" label="Ativar horário silencioso">
-          <ToggleSwitch checked onChange={() => {}} />
-        </SettingRow>
-        <SettingRow label="Horário de início / fim">
-          <div className="flex items-center gap-2">
-            <input className={`${inputClass} w-28`} defaultValue="22:00" type="time" />
-            <span className="text-sm text-[#a3a3a3]">até</span>
-            <input className={`${inputClass} w-28`} defaultValue="07:00" type="time" />
-          </div>
-        </SettingRow>
-      </Subsection>
     </SectionFrame>
   )
 }
@@ -218,81 +172,6 @@ function PrivacySection() {
           </button>
         </SettingRow>
       </Subsection>
-    </SectionFrame>
-  )
-}
-
-function AccountSection() {
-  const [profile, setProfile] = useState({
-    name: 'Dra. Ana Silva',
-    email: 'ana.silva@mediconnect.com.br',
-    role: 'Coordenação Médica',
-    crm: 'CRM/SE 12345',
-  })
-
-  function update(field, value) {
-    setProfile((current) => ({ ...current, [field]: value }))
-  }
-
-  return (
-    <SectionFrame description="Gerencie suas informações pessoais e credenciais." title="Conta & Perfil">
-      <div className="mb-6 flex items-center gap-4 rounded-xl border border-[#404040] bg-[#171717] p-5">
-        <div className="grid size-16 place-items-center rounded-full border-2 border-[#3b82f6]/20 bg-[#3b82f6]/10 text-xl font-bold text-[#3b82f6]">
-          AS
-        </div>
-        <div>
-          <p className="text-sm font-bold text-[#f5f5f5]">{profile.name}</p>
-          <p className="text-xs text-[#a3a3a3]">{profile.role}</p>
-          <button className="mt-1 text-xs font-semibold text-[#3b82f6]" type="button">
-            Alterar foto
-          </button>
-        </div>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <TextField label="Nome completo" onChange={(value) => update('name', value)} value={profile.name} />
-        <TextField label="E-mail" onChange={(value) => update('email', value)} value={profile.email} />
-        <TextField label="Cargo / Função" onChange={(value) => update('role', value)} value={profile.role} />
-        <TextField label="CRM / Registro" onChange={(value) => update('crm', value)} value={profile.crm} />
-      </div>
-
-      <Subsection title="Segurança">
-        <SettingRow description="Última alteração há 45 dias" label="Alterar senha">
-          <button className="h-9 rounded-sm border border-[#404040] bg-[#303030] px-3 text-sm font-semibold text-[#e5e5e5]" type="button">
-            Alterar
-          </button>
-        </SettingRow>
-        <SettingRow description="Gerenciar dispositivos conectados" label="Sessões ativas">
-          <button className="text-sm font-semibold text-[#3b82f6]" type="button">
-            Ver sessões
-          </button>
-        </SettingRow>
-      </Subsection>
-    </SectionFrame>
-  )
-}
-
-function IntegrationsSection() {
-  const integrations = settingsRepository.getIntegrations()
-
-  return (
-    <SectionFrame description="Conecte o MediConnect com sistemas e serviços externos." title="Integrações">
-      <div className="space-y-3">
-        {integrations.map(([name, desc, connected, color]) => (
-          <div className="flex items-center gap-4 rounded-xl border border-[#404040] bg-[#171717] p-4" key={name}>
-            <div className={`grid size-10 shrink-0 place-items-center rounded-lg ${color}`}>
-              <SettingsIcon className="size-5 text-white" name="globe" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-[#f5f5f5]">{name}</p>
-              <p className="text-xs text-[#a3a3a3]">{desc}</p>
-            </div>
-            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${connected ? 'bg-emerald-500/10 text-emerald-400' : 'bg-[#303030] text-[#a3a3a3]'}`}>
-              {connected ? 'Conectado' : 'Desconectado'}
-            </span>
-          </div>
-        ))}
-      </div>
     </SectionFrame>
   )
 }
@@ -386,15 +265,6 @@ function SettingRow({ children, description, label }) {
   )
 }
 
-function TextField({ label, onChange, value }) {
-  return (
-    <label className="grid gap-2">
-      <span className="text-xs font-semibold text-[#a3a3a3]">{label}</span>
-      <input className={`${inputClass} w-full`} onChange={(event) => onChange(event.target.value)} value={value} />
-    </label>
-  )
-}
-
 function ToggleSwitch({ checked, onChange }) {
   return (
     <button
@@ -420,36 +290,10 @@ function SettingsIcon({ className = 'size-4', name }) {
     viewBox: '0 0 24 24',
   }
 
-  if (name === 'bell') {
-    return (
-      <svg {...common}>
-        <path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
-        <path d="M10 21h4" />
-      </svg>
-    )
-  }
-
   if (name === 'shield') {
     return (
       <svg {...common}>
         <path d="M12 3 5 6v5c0 4 3 7.5 7 10 4-2.5 7-6 7-10V6l-7-3Z" />
-      </svg>
-    )
-  }
-
-  if (name === 'user') {
-    return (
-      <svg {...common}>
-        <path d="M16 19a4 4 0 0 0-8 0M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
-      </svg>
-    )
-  }
-
-  if (name === 'globe') {
-    return (
-      <svg {...common}>
-        <circle cx="12" cy="12" r="9" />
-        <path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18" />
       </svg>
     )
   }

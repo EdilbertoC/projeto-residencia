@@ -1,26 +1,39 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-
-import { authRepository } from './repositories/authRepository.js'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 
 import './App.css'
 import { AppShell } from './components/AppShell.jsx'
-import { AgendaPage } from './pages/AgendaPage.jsx'
-import { AnalyticsPage } from './pages/AnalyticsPage.jsx'
+import { canAccess } from './config/permissions.js'
+import { useAuth } from './hooks/useAuth.js'
 import { ForgotPasswordPage, LoginPage, RegisterPage } from './pages/AuthPages.jsx'
-import { HomePage } from './pages/HomePage.jsx'
-import { MedicalRecordsPage } from './pages/MedicalRecordsPage.jsx'
-import { MessagesPage } from './pages/MessagesPage.jsx'
 import { NotFoundPage } from './pages/NotFoundPage.jsx'
-import { PatientDetailPage, PatientsPage } from './pages/PatientsPage.jsx'
-import { ProfilePage } from './pages/ProfilePage.jsx'
-import { ReportsPage } from './pages/ReportsPage.jsx'
-import { SettingsPage } from './pages/SettingsPage.jsx'
-import { TeamPage } from './pages/TeamPage.jsx'
-import { VisitsPage } from './pages/VisitsPage.jsx'
 import { patientRepository } from './repositories/patientRepository.js'
+
+const AgendaPage = lazyPage(() => import('./pages/AgendaPage.jsx'), 'AgendaPage')
+const AnalyticsPage = lazyPage(() => import('./pages/AnalyticsPage.jsx'), 'AnalyticsPage')
+const HomePage = lazyPage(() => import('./pages/HomePage.jsx'), 'HomePage')
+const MedicalRecordsPage = lazyPage(() => import('./pages/MedicalRecordsPage.jsx'), 'MedicalRecordsPage')
+const MessagesPage = lazyPage(() => import('./pages/MessagesPage.jsx'), 'MessagesPage')
+const PatientDetailPage = lazyPage(() => import('./pages/PatientsPage.jsx'), 'PatientDetailPage')
+const PatientsPage = lazyPage(() => import('./pages/PatientsPage.jsx'), 'PatientsPage')
+const ProfilePage = lazyPage(() => import('./pages/ProfilePage.jsx'), 'ProfilePage')
+const ReportsPage = lazyPage(() => import('./pages/ReportsPage.jsx'), 'ReportsPage')
+const SettingsPage = lazyPage(() => import('./pages/SettingsPage.jsx'), 'SettingsPage')
+const UsersPage = lazyPage(() => import('./pages/UsersPage.jsx'), 'UsersPage')
+const VisitsPage = lazyPage(() => import('./pages/VisitsPage.jsx'), 'VisitsPage')
+
+const PANEL_PATHS = ['/inicio', '/home', '/dashboard']
+const ROLE_HOME_PATHS = {
+  medico: '/agenda',
+  secretaria: '/agenda',
+}
+
+function lazyPage(loader, exportName) {
+  return lazy(() => loader().then((module) => ({ default: module[exportName] })))
+}
 
 function App() {
   const [location, setLocation] = useState(() => readLocation())
+  const { isAuthenticated, role, loading: authLoading } = useAuth()
 
   const navigate = useCallback((to, options = {}) => {
     if (options.replace) {
@@ -49,25 +62,69 @@ function App() {
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
 
-  const route = useMemo(() => resolveRoute(location.pathname, navigate), [location.pathname, navigate])
-  const isAuthenticated = authRepository.isAuthenticated()
+  const route = useMemo(
+    () => resolveRoute(location.pathname, navigate, role),
+    [location.pathname, navigate, role],
+  )
 
-  if (!route.withShell) {
-    return route.element
+  // Tela de carregamento enquanto busca o role do usuário
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#0a0a0a]">
+        <p className="text-sm text-[#a3a3a3]">Carregando...</p>
+      </div>
+    )
   }
 
+  // Rotas públicas (sem shell)
+  if (!route.withShell) {
+    return <RouteSuspense>{route.element}</RouteSuspense>
+  }
+
+  // Usuário não autenticado
   if (!isAuthenticated) {
     return <LoginPage navigate={navigate} />
   }
 
+  // Usuário autenticado mas sem permissão para a rota
+  if (!role || !canAccess(role, location.pathname)) {
+    const roleHomePath = ROLE_HOME_PATHS[role]
+    if (roleHomePath && PANEL_PATHS.includes(location.pathname)) {
+      navigate(roleHomePath, { replace: true })
+      return null
+    }
+
+    return (
+      <AppShell currentPath={location.pathname} navigate={navigate} role={role} routeTitle="Sem acesso">
+        <UnauthorizedPage navigate={navigate} />
+      </AppShell>
+    )
+  }
+
   return (
-    <AppShell currentPath={location.pathname} navigate={navigate} routeTitle={route.title}>
-      {route.element}
+    <AppShell currentPath={location.pathname} navigate={navigate} role={role} routeTitle={route.title}>
+      <RouteSuspense>{route.element}</RouteSuspense>
     </AppShell>
   )
 }
 
-function resolveRoute(pathname, navigate) {
+function RouteSuspense({ children }) {
+  return (
+    <Suspense fallback={<RouteFallback />}>
+      {children}
+    </Suspense>
+  )
+}
+
+function RouteFallback() {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center">
+      <p className="text-sm text-[#a3a3a3]">Carregando...</p>
+    </div>
+  )
+}
+
+function resolveRoute(pathname, navigate, role) {
   if (pathname === '/' || pathname === '/login') {
     return {
       element: <LoginPage navigate={navigate} />,
@@ -102,7 +159,7 @@ function resolveRoute(pathname, navigate) {
 
   if (pathname === '/agenda') {
     return {
-      element: <AgendaPage navigate={navigate} />,
+      element: <AgendaPage navigate={navigate} role={role} />,
       title: 'Agenda',
       withShell: true,
     }
@@ -110,7 +167,7 @@ function resolveRoute(pathname, navigate) {
 
   if (pathname === '/pacientes') {
     return {
-      element: <PatientsPage navigate={navigate} />,
+      element: <PatientsPage navigate={navigate} role={role} />,
       title: 'Pacientes',
       withShell: true,
     }
@@ -124,11 +181,27 @@ function resolveRoute(pathname, navigate) {
     }
   }
 
+  if (pathname === '/prontuario/novo') {
+    return {
+      element: <MedicalRecordsPage mode="new" navigate={navigate} />,
+      title: 'Novo prontuário',
+      withShell: true,
+    }
+  }
+
+  if (pathname.startsWith('/prontuario/')) {
+    const [, , recordId, action] = pathname.split('/')
+    return {
+      element: <MedicalRecordsPage mode={action === 'editar' ? 'edit' : 'detail'} navigate={navigate} recordId={recordId} />,
+      title: action === 'editar' ? 'Editar prontuário' : 'Prontuário',
+      withShell: true,
+    }
+  }
+
   if (pathname.startsWith('/pacientes/')) {
     const patientId = pathname.split('/')[2]
-
     return {
-      element: <PatientDetailRoute navigate={navigate} patientId={patientId} />,
+      element: <PatientDetailRoute navigate={navigate} patientId={patientId} role={role} />,
       title: 'Paciente',
       withShell: true,
     }
@@ -144,8 +217,8 @@ function resolveRoute(pathname, navigate) {
 
   if (pathname === '/laudos') {
     return {
-      element: <ReportsPage navigate={navigate} />,
-      title: 'Relatorios medicos',
+      element: <ReportsPage navigate={navigate} role={role} />,
+      title: 'Relatórios',
       withShell: true,
     }
   }
@@ -153,23 +226,32 @@ function resolveRoute(pathname, navigate) {
   if (pathname === '/relatorios') {
     return {
       element: <AnalyticsPage />,
-      title: 'Relatórios',
+      title: 'Analytics',
       withShell: true,
     }
   }
 
-  if (pathname === '/camunicacao' || pathname === '/comunicacao' || pathname === '/mensagens') {
+  if (pathname === '/camunicacao') {
+    navigate('/comunicacao', { replace: true })
     return {
-      element: <MessagesPage navigate={navigate} />,
+      element: <MessagesPage navigate={navigate} role={role} />,
       title: 'Comunicação',
       withShell: true,
     }
   }
 
-  if (pathname === '/profissionais') {
+  if (pathname === '/comunicacao' || pathname === '/mensagens') {
     return {
-      element: <TeamPage navigate={navigate} />,
-      title: 'Profissionais',
+      element: <MessagesPage navigate={navigate} role={role} />,
+      title: 'Comunicação',
+      withShell: true,
+    }
+  }
+
+  if (pathname === '/usuarios') {
+    return {
+      element: <UsersPage role={role} />,
+      title: 'Usuários',
       withShell: true,
     }
   }
@@ -192,19 +274,20 @@ function resolveRoute(pathname, navigate) {
 
   return {
     element: <NotFoundPage navigate={navigate} />,
-    title: 'Tela nao encontrada',
+    title: 'Página não encontrada',
     withShell: true,
   }
 }
 
-function PatientDetailRoute({ navigate, patientId }) {
+function PatientDetailRoute({ navigate, patientId, role }) {
   const [patient, setPatient] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let active = true
 
-    patientRepository.getById(patientId)
+    patientRepository
+      .getById(patientId)
       .then((data) => {
         if (active) setPatient(data)
       })
@@ -221,7 +304,30 @@ function PatientDetailRoute({ navigate, patientId }) {
     return <div className="pt-10 text-sm text-[#a3a3a3]">Carregando paciente...</div>
   }
 
-  return patient ? <PatientDetailPage navigate={navigate} patient={patient} /> : <NotFoundPage navigate={navigate} />
+  return patient ? (
+    <PatientDetailPage navigate={navigate} patient={patient} role={role} />
+  ) : (
+    <NotFoundPage navigate={navigate} />
+  )
+}
+
+function UnauthorizedPage({ navigate }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-20 text-center">
+      <p className="text-5xl">🔒</p>
+      <h1 className="mt-4 text-2xl font-bold text-[#e5e5e5]">Acesso não permitido</h1>
+      <p className="mt-2 text-sm text-[#a3a3a3]">
+        Você não tem permissão para acessar esta página.
+      </p>
+      <button
+        className="mt-6 rounded-lg bg-[#3b82f6] px-5 py-2.5 text-sm font-medium text-white transition hover:bg-[#2563eb]"
+        onClick={() => navigate('/inicio')}
+        type="button"
+      >
+        Voltar ao painel
+      </button>
+    </div>
+  )
 }
 
 function readLocation() {

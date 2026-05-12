@@ -2,6 +2,7 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://yuanqfswhberk
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl1YW5xZnN3aGJlcmtvZXZ0bWZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ5NTQzNjksImV4cCI6MjA3MDUzMDM2OX0.g8Fm4XAvtX46zifBZnYVH4tVuQkqUH6Ia9CXQj4DztQ'
 
 const AUTH_SESSION_KEY = 'mediconnect.auth.session'
+export const AUTH_SESSION_CHANGED_EVENT = 'mediconnect:auth-session-changed'
 
 export const apiConfig = {
   apiUrl: import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || `${SUPABASE_URL}/functions/v1`,
@@ -34,12 +35,14 @@ export function getAuthSession() {
 export function saveAuthSession(session) {
   if (typeof window !== 'undefined') {
     window.sessionStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session))
+    notifyAuthSessionChanged()
   }
 }
 
 export function clearAuthSession() {
   if (typeof window !== 'undefined') {
     window.sessionStorage.removeItem(AUTH_SESSION_KEY)
+    notifyAuthSessionChanged()
   }
 }
 
@@ -84,4 +87,8 @@ function cleanHeaders(headers) {
   return Object.fromEntries(
     Object.entries(headers).filter(([, value]) => value !== undefined && value !== null),
   )
+}
+
+function notifyAuthSessionChanged() {
+  window.dispatchEvent(new Event(AUTH_SESSION_CHANGED_EVENT))
 }

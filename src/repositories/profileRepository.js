@@ -1,4 +1,5 @@
 import { authRepository } from './authRepository.js'
+import { normalizeRole, ROLE_LABELS } from '../config/permissions.js'
 import { apiConfig, apiEndpoint, getAuthenticatedHeaders } from '../config/api.js'
 import { getResponseError } from './repositoryUtils.js'
 
@@ -9,7 +10,8 @@ export const profileRepository = {
     const user = data?.user || data?.usuario || profile || data
     const meta = user?.user_metadata || user?.metadata || user?.app_metadata || {}
     const permissions = data?.permissions || {}
-    const roles = Array.isArray(data?.roles) ? data.roles : []
+    const roles = collectRoles({ data, meta, profile, user })
+    const normalizedRole = resolveNormalizedRole({ permissions, roles, user, meta })
     const avatarUrl =
       profile?.avatar_url ||
       profile?.avatarUrl ||
@@ -22,17 +24,19 @@ export const profileRepository = {
     return {
       id: profile?.id || user?.id || user?.user_id || user?.uid || '',
       email: profile?.email || user?.email || meta.email || '',
-      name: profile?.full_name || user?.name || user?.nome || user?.full_name || meta.full_name || meta.name || 'Usuario',
+      name: profile?.full_name || user?.name || user?.nome || user?.full_name || meta.full_name || meta.name || 'Usuário',
       phone: profile?.phone || user?.phone || user?.telefone || meta.phone || meta.telefone || '',
-      role: resolveProfileRole({ permissions, roles, user, meta }),
-      unit: profile?.unit || user?.unit || user?.unidade || meta.unit || meta.unidade || 'Clinica Boa Vista',
+      role: ROLE_LABELS[normalizedRole] || user?.role || user?.cargo || meta.role || meta.cargo || 'Usuário do Sistema',
+      unit: profile?.unit || user?.unit || user?.unidade || meta.unit || meta.unidade || 'Clínica Boa Vista',
       avatarUrl,
       doctorId: data?.doctor_id || data?.doctorId || null,
       patientId: data?.patient_id || data?.patientId || null,
       roles,
       permissions,
-      isDoctor: Boolean(permissions.isDoctor || roles.includes('doctor') || data?.doctor_id),
-      isAdmin: Boolean(permissions.isAdmin || roles.includes('admin')),
+      isDoctor: normalizedRole === 'medico',
+      isAdmin: normalizedRole === 'admin',
+      isManager: normalizedRole === 'gestor',
+      isSecretary: normalizedRole === 'secretaria',
     }
   },
 
@@ -57,7 +61,7 @@ export const profileRepository = {
     }
 
     if (!profile.id) {
-      throw new Error('Nao foi possivel identificar o usuario para enviar o avatar.')
+      throw new Error('Não foi possível identificar o usuário para enviar o avatar.')
     }
 
     const extension = file.name?.split('.').pop() || 'jpg'
@@ -80,6 +84,24 @@ export const profileRepository = {
       path: objectPath,
     }
   },
+
+  async downloadAvatar(path) {
+    const objectPath = String(path || '').replace(/^\/+/, '')
+    const response = await fetch(`${apiConfig.storageUrl}/object/avatars/${objectPath}`, {
+      method: 'GET',
+      headers: getAuthenticatedHeaders({ 'Content-Type': undefined }),
+    })
+
+    if (!response.ok) {
+      throw new Error(await getResponseError(response, 'Falha ao baixar avatar.'))
+    }
+
+    return {
+      blob: await response.blob(),
+      contentType: response.headers.get('content-type') || 'application/octet-stream',
+      path: objectPath,
+    }
+  },
 }
 
 function normalizeAvatarResponse(data) {
@@ -89,12 +111,31 @@ function normalizeAvatarResponse(data) {
   }
 }
 
-function resolveProfileRole({ permissions, roles, user, meta }) {
-  if (permissions.isAdmin || roles.includes('admin')) return 'Administrador'
-  if (permissions.isManager || roles.includes('manager')) return 'Gestor'
-  if (permissions.isDoctor || roles.includes('doctor')) return 'Medico(a)'
-  if (permissions.isSecretary || roles.includes('secretary')) return 'Secretaria'
-  if (permissions.isPatient || roles.includes('patient')) return 'Paciente'
+function collectRoles({ data, meta, profile, user }) {
+  return [
+    ...(Array.isArray(data?.roles) ? data.roles : []),
+    ...(Array.isArray(user?.roles) ? user.roles : []),
+    data?.role,
+    data?.cargo,
+    profile?.role,
+    profile?.cargo,
+    user?.role,
+    user?.cargo,
+    meta.role,
+    meta.cargo,
+  ].filter(Boolean)
+}
 
-  return user?.role || user?.cargo || meta.role || meta.cargo || 'Usuario do Sistema'
+function resolveNormalizedRole({ permissions, roles, user, meta }) {
+  for (const role of roles) {
+    const normalized = normalizeRole(role)
+    if (normalized) return normalized
+  }
+
+  if (permissions.isAdmin) return 'admin'
+  if (permissions.isManager) return 'gestor'
+  if (permissions.isDoctor) return 'medico'
+  if (permissions.isSecretary) return 'secretaria'
+
+  return normalizeRole(user?.role || user?.cargo || meta.role || meta.cargo)
 }

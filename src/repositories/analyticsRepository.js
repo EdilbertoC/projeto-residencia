@@ -12,12 +12,12 @@ export const analyticsRepository = {
   getDashboardData() {
     return {
       absenteeismData: [
-        { month: 'Out', taxa: 18, meta: 15 },
-        { month: 'Nov', taxa: 16, meta: 15 },
-        { month: 'Dez', taxa: 22, meta: 15 },
-        { month: 'Jan', taxa: 14, meta: 15 },
-        { month: 'Fev', taxa: 12, meta: 15 },
-        { month: 'Mar', taxa: 14.2, meta: 15 },
+        { month: 'Out/2025', taxa: 18, meta: 15 },
+        { month: 'Nov/2025', taxa: 16, meta: 15 },
+        { month: 'Dez/2025', taxa: 22, meta: 15 },
+        { month: 'Jan/2026', taxa: 14, meta: 15 },
+        { month: 'Fev/2026', taxa: 12, meta: 15 },
+        { month: 'Mar/2026', taxa: 14.2, meta: 15 },
       ],
       consultationsData: [
         { month: 'Out', total: 380, realizadas: 312 },

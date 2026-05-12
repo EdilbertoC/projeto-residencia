@@ -1,8 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { EditorContent, useEditor } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
+import Underline from '@tiptap/extension-underline'
+import TextAlign from '@tiptap/extension-text-align'
 
+import { normalizeRole } from '../config/permissions.js'
 import { patientRepository } from '../repositories/patientRepository.js'
 import { professionalRepository } from '../repositories/professionalRepository.js'
+import { profileRepository } from '../repositories/profileRepository.js'
 import { reportRepository } from '../repositories/reportRepository.js'
+import { StethoscopeIcon } from '../components/Brand.jsx'
 
 const ITEMS_PER_PAGE = 25
 
@@ -12,24 +19,111 @@ const statusConfig = {
     pill: 'bg-amber-500/20 text-amber-400',
     stat: 'text-amber-400',
   },
+  finalized: {
+    label: 'Finalizado',
+    pill: 'bg-emerald-500/20 text-emerald-400',
+    stat: 'text-emerald-400',
+  },
 }
 
 const orderOptions = [
-  { label: 'Criacao mais recente', value: 'created_at.desc' },
-  { label: 'Criacao mais antiga', value: 'created_at.asc' },
+  { label: 'Criação mais recente', value: 'created_at.desc' },
+  { label: 'Criação mais antiga', value: 'created_at.asc' },
   { label: 'Prazo mais proximo', value: 'due_at.asc' },
   { label: 'Prazo mais distante', value: 'due_at.desc' },
 ]
 
 const inputClass =
   'h-10 w-full rounded-lg border border-[#404040] bg-[#1a1a1a] px-3 text-sm text-[#e5e5e5] outline-none transition placeholder:text-[#a3a3a3] focus:border-[#3b82f6] focus:ring-1 focus:ring-[#3b82f6]'
-const textareaClass =
-  'min-h-24 w-full rounded-lg border border-[#404040] bg-[#1a1a1a] px-3 py-2 text-sm text-[#e5e5e5] outline-none transition placeholder:text-[#a3a3a3] focus:border-[#3b82f6] focus:ring-1 focus:ring-[#3b82f6]'
 const labelClass = 'mb-1.5 block text-xs font-medium text-[#e5e5e5]'
 const cardClass = 'rounded-2xl border border-[#404040] bg-[#262626] shadow-sm'
 
+const reportTemplates = [
+  {
+    id: 'consulta-medica',
+    category: 'Relatórios',
+    title: 'Relatório de Consulta Médica',
+    description: 'Resumo clínico com queixa, exame físico, hipótese diagnóstica e conduta.',
+    popular: true,
+    tags: ['consulta', 'clínico', 'conduta'],
+    exam: 'Consulta médica',
+    cidCode: 'Z00.0',
+    diagnosis: 'Paciente avaliado(a) em consulta médica, com hipótese diagnóstica em investigação conforme quadro clínico.',
+    conclusion: 'Paciente orientado(a) quanto à conduta proposta, sinais de alerta e necessidade de seguimento.',
+    contentHtml:
+      '<h2>Relatório de Consulta Médica</h2><p><strong>Queixa principal:</strong> </p><p><strong>História clínica:</strong> </p><p><strong>Exame físico:</strong> </p><p><strong>Hipóteses diagnósticas:</strong> </p><p><strong>Conduta:</strong> </p>',
+  },
+  {
+    id: 'evolucao-clinica',
+    category: 'Relatórios',
+    title: 'Evolução Clínica',
+    description: 'Registro de evolução diária para acompanhamento de internação.',
+    tags: ['internação', 'evolução', 'diário'],
+    exam: 'Evolução clínica',
+    cidCode: 'Z51.9',
+    diagnosis: 'Paciente em acompanhamento clínico durante internação, com evolução registrada em prontuário.',
+    conclusion: 'Manter acompanhamento multiprofissional e reavaliar conduta conforme evolução.',
+    contentHtml:
+      '<h2>Evolução Clínica</h2><p><strong>Data e hora:</strong> </p><p><strong>Estado geral:</strong> </p><p><strong>Sinais vitais:</strong> </p><p><strong>Evolução:</strong> </p><p><strong>Conduta do dia:</strong> </p><p><strong>Profissional:</strong> </p>',
+  },
+  {
+    id: 'hemograma',
+    category: 'Laudos',
+    title: 'Laudo de Hemograma',
+    description: 'Interpretação clínica de hemograma com correlação diagnóstica.',
+    tags: ['laboratorial', 'sangue', 'hemograma'],
+    exam: 'Hemograma completo',
+    cidCode: 'Z01.7',
+    diagnosis: 'Exame laboratorial avaliado em conjunto com quadro clínico e exames complementares.',
+    conclusion: 'Resultado analisado e correlacionado com a hipótese diagnóstica descrita.',
+    contentHtml:
+      '<h2>Laudo de Hemograma</h2><p><strong>Material:</strong> Sangue periférico.</p><p><strong>Achados principais:</strong> </p><p><strong>Interpretação:</strong> </p><p><strong>Conclusão:</strong> </p>',
+  },
+  {
+    id: 'imagem',
+    category: 'Laudos',
+    title: 'Laudo de Imagem',
+    description: 'Modelo para exames de imagem com descrição técnica e impressão diagnóstica.',
+    popular: true,
+    tags: ['imagem', 'radiologia', 'exame'],
+    exam: 'Exame de imagem',
+    cidCode: 'Z01.6',
+    diagnosis: 'Achados de imagem descritos conforme exame realizado e indicação clínica.',
+    conclusion: 'Impressão diagnóstica registrada conforme achados do exame.',
+    contentHtml:
+      '<h2>Laudo de Imagem</h2><p><strong>Técnica:</strong> </p><p><strong>Achados:</strong> </p><p><strong>Impressão diagnóstica:</strong> </p><p><strong>Recomendação:</strong> </p>',
+  },
+  {
+    id: 'pre-operatorio',
+    category: 'Relatórios',
+    title: 'Avaliação Pré-operatória',
+    description: 'Avaliação clínica para estratificação de risco e liberação cirúrgica.',
+    tags: ['pré-op', 'cirurgia', 'risco'],
+    exam: 'Avaliação pré-operatória',
+    cidCode: 'Z01.8',
+    diagnosis: 'Paciente em avaliação pré-operatória, com risco definido conforme dados clínicos disponíveis.',
+    conclusion: 'Conduta pré-operatória orientada conforme avaliação clínica e exames apresentados.',
+    contentHtml:
+      '<h2>Avaliação Pré-operatória</h2><p><strong>Procedimento proposto:</strong> </p><p><strong>Comorbidades:</strong> </p><p><strong>Medicamentos em uso:</strong> </p><p><strong>Estratificação de risco:</strong> </p><p><strong>Orientações:</strong> </p>',
+  },
+  {
+    id: 'encaminhamento',
+    category: 'Encaminhamentos',
+    title: 'Encaminhamento Especializado',
+    description: 'Encaminhamento com justificativa clínica e resumo do caso.',
+    tags: ['encaminhamento', 'especialista', 'conduta'],
+    exam: 'Encaminhamento médico',
+    cidCode: 'Z75.8',
+    diagnosis: 'Paciente encaminhado(a) para avaliação especializada por necessidade clínica descrita.',
+    conclusion: 'Solicitada avaliação especializada e continuidade do cuidado compartilhado.',
+    contentHtml:
+      '<h2>Encaminhamento Especializado</h2><p><strong>Especialidade solicitada:</strong> </p><p><strong>Resumo clínico:</strong> </p><p><strong>Motivo do encaminhamento:</strong> </p><p><strong>Exames anexos:</strong> </p>',
+  },
+]
+
 const emptyEditor = {
   id: null,
+  orderNumber: '',
   patientId: '',
   status: 'draft',
   exam: '',
@@ -39,18 +133,20 @@ const emptyEditor = {
   conclusion: '',
   contentHtml: '',
   contentJson: undefined,
-  hideDate: false,
-  hideSignature: false,
   dueAt: '',
 }
 
-export function ReportsPage() {
+export function ReportsPage({ role }) {
   const [reports, setReports] = useState([])
   const [patients, setPatients] = useState([])
   const [professionals, setProfessionals] = useState([])
+  const [viewerProfile, setViewerProfile] = useState(null)
+  const [currentProfessional, setCurrentProfessional] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [scopeLoading, setScopeLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const isDoctorRole = normalizeRole(role) === 'medico'
 
   const [filterPatientId, setFilterPatientId] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
@@ -80,7 +176,7 @@ export function ReportsPage() {
         return {
           id: String(professional.id || ''),
           createdByValue,
-          name: professional.name || 'Medico(a)',
+          name: professional.name || 'Médico(a)',
         }
       })
       .filter((professional) => {
@@ -107,7 +203,7 @@ export function ReportsPage() {
     () =>
       reports.map((report) => ({
         ...report,
-        patientName: patientNameById[String(report.patientId || '')] || 'Paciente nao encontrado',
+        patientName: patientNameById[String(report.patientId || '')] || 'Paciente não encontrado',
         createdByName: professionalNameByCreatedBy[String(report.createdBy || '')] || report.createdBy || 'Sistema',
       })),
     [patientNameById, professionalNameByCreatedBy, reports],
@@ -121,6 +217,11 @@ export function ReportsPage() {
         value: enrichedReports.filter((report) => report.status === 'draft').length,
         className: statusConfig.draft.stat,
       },
+      {
+        label: 'Finalizados',
+        value: enrichedReports.filter((report) => report.status === 'finalized').length,
+        className: statusConfig.finalized.stat,
+      },
     ],
     [enrichedReports],
   )
@@ -131,14 +232,30 @@ export function ReportsPage() {
   const paginatedReports = enrichedReports.slice(startIndex, startIndex + ITEMS_PER_PAGE)
 
   const loadReports = useCallback(async () => {
+    if (scopeLoading) return
+
     setLoading(true)
     setError('')
 
     try {
+      const doctorPatientIds = isDoctorRole
+        ? patientOptions.map((patient) => patient.id).filter(Boolean)
+        : []
+      const createdByValues = isDoctorRole
+        ? uniqueValues([
+            viewerProfile?.id,
+            viewerProfile?.doctorId,
+            currentProfessional?.userId,
+            currentProfessional?.id,
+          ])
+        : []
+
       const data = await reportRepository.getInitialReports({
         patientId: filterPatientId || undefined,
+        patientIds: !filterPatientId && doctorPatientIds.length ? doctorPatientIds : undefined,
         status: filterStatus || undefined,
-        createdBy: filterCreatedBy || undefined,
+        createdBy: !isDoctorRole ? filterCreatedBy || undefined : undefined,
+        createdByValues: isDoctorRole && !doctorPatientIds.length ? createdByValues : undefined,
         order: filterOrder,
       })
 
@@ -146,36 +263,54 @@ export function ReportsPage() {
       setPage(1)
     } catch (loadError) {
       console.error(loadError)
-      setError(loadError.message || 'Erro ao carregar relatorios medicos.')
+      setError(loadError.message || 'Erro ao carregar relatórios.')
       setReports([])
       setPage(1)
     } finally {
       setLoading(false)
     }
-  }, [filterCreatedBy, filterOrder, filterPatientId, filterStatus])
+  }, [currentProfessional, filterCreatedBy, filterOrder, filterPatientId, filterStatus, isDoctorRole, patientOptions, scopeLoading, viewerProfile])
 
   useEffect(() => {
     let active = true
 
-    Promise.all([
-      patientRepository.getAll(),
-      professionalRepository.getAll(),
-    ])
-      .then(([patientData, professionalData]) => {
+    async function loadAuxiliaryData() {
+      setScopeLoading(true)
+
+      try {
+        const [professionalData, currentProfile] = await Promise.all([
+          professionalRepository.getAll(),
+          profileRepository.getCurrentUserProfile(),
+        ])
+
         if (!active) return
+
+        const resolvedProfessional = professionalRepository.resolveCurrentProfessional(currentProfile, professionalData || [])
+        const patientData = isDoctorRole && resolvedProfessional?.id
+          ? await patientRepository.getDirectoryRows({ doctorId: resolvedProfessional.id })
+          : await patientRepository.getAll()
+
+        if (!active) return
+
+        setViewerProfile(currentProfile)
+        setCurrentProfessional(resolvedProfessional)
         setPatients(patientData || [])
         setProfessionals(professionalData || [])
-      })
-      .catch((loadError) => {
+      } catch (loadError) {
         if (!active) return
         console.error(loadError)
         setError(loadError.message || 'Erro ao carregar dados auxiliares.')
-      })
+      } finally {
+        if (active) setScopeLoading(false)
+      }
+    }
+
+    loadAuxiliaryData()
 
     return () => {
       active = false
     }
-  }, [])
+  }, [isDoctorRole])
 
   useEffect(() => {
     loadReports()
@@ -192,6 +327,7 @@ export function ReportsPage() {
   function openEdit(report) {
     setEditor({
       id: report.id,
+      orderNumber: report.orderNumber,
       patientId: String(report.patientId || ''),
       status: report.status,
       exam: report.exam,
@@ -201,31 +337,40 @@ export function ReportsPage() {
       conclusion: report.conclusion,
       contentHtml: report.contentHtml,
       contentJson: report.contentJson,
-      hideDate: report.hideDate,
-      hideSignature: report.hideSignature,
       dueAt: toDateTimeLocal(report.dueAt),
     })
     setEditorOpen(true)
   }
 
   async function handleSave() {
-    if (!editor.patientId) return
+    if (!isReportEditorValid(editor)) {
+      alert('Preencha todos os campos obrigatórios antes de salvar o relatório.')
+      return
+    }
 
     setSaving(true)
 
+    const plainContent = stripHtml(editor.contentHtml)
+    const fallbackAuthor =
+      currentProfessional?.name ||
+      viewerProfile?.name ||
+      viewerProfile?.email ||
+      'Profissional MediConnect'
+
     const payload = {
-      patientId: editor.patientId,
+      orderNumber: editor.id ? editor.orderNumber : `REL-${Date.now()}`,
+      patientId: editor.patientId || patientOptions[0]?.id || '',
       status: editor.status,
-      exam: editor.exam,
-      requestedBy: editor.requestedBy,
-      cidCode: editor.cidCode,
-      diagnosis: editor.diagnosis,
-      conclusion: editor.conclusion,
+      exam: editor.exam || 'Relatório médico',
+      requestedBy: editor.requestedBy || fallbackAuthor,
+      cidCode: editor.cidCode || 'Z00.0',
+      diagnosis: editor.diagnosis || plainContent.slice(0, 240) || 'Relatório médico registrado em prontuário.',
+      conclusion: editor.conclusion || plainContent.slice(0, 240) || 'Relatório médico salvo no sistema.',
       contentHtml: editor.contentHtml,
       contentJson: editor.contentJson,
-      hideDate: editor.hideDate,
-      hideSignature: editor.hideSignature,
-      dueAt: editor.dueAt ? new Date(editor.dueAt).toISOString() : '',
+      dueAt: editor.dueAt ? new Date(editor.dueAt).toISOString() : new Date().toISOString(),
+      createdBy: editor.id ? undefined : viewerProfile?.id || currentProfessional?.userId || currentProfessional?.id || undefined,
+      updatedBy: viewerProfile?.id || currentProfessional?.userId || currentProfessional?.id || undefined,
     }
 
     try {
@@ -238,7 +383,7 @@ export function ReportsPage() {
       setEditorOpen(false)
       await loadReports()
     } catch (saveError) {
-      alert(saveError.message || 'Erro ao salvar relatorio medico.')
+      alert(saveError.message || 'Erro ao salvar relatório.')
     } finally {
       setSaving(false)
     }
@@ -248,8 +393,8 @@ export function ReportsPage() {
     <div className="mx-auto max-w-7xl space-y-6 text-[#e5e5e5]">
       <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#e5e5e5]">Relatorios medicos</h1>
-          <p className="mt-1 text-sm text-[#a3a3a3]">Consulta, criacao e edicao de relatorios medicos.</p>
+          <h1 className="text-2xl font-bold tracking-tight text-[#e5e5e5]">Relatórios</h1>
+          <p className="mt-1 text-sm text-[#a3a3a3]">Consulta, criação e edição de relatórios.</p>
         </div>
         <button
           className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#3b82f6] px-4 text-sm font-medium text-white transition hover:bg-[#2563eb]"
@@ -257,7 +402,7 @@ export function ReportsPage() {
           type="button"
         >
           <ReportIcon name="plus" />
-          Novo relatorio
+          Novo relatório
         </button>
       </div>
 
@@ -303,6 +448,7 @@ export function ReportsPage() {
             >
               <option value="">Todos os status</option>
               <option value="draft">Rascunho</option>
+              <option value="finalized">Finalizado</option>
             </select>
           </FilterField>
 
@@ -324,7 +470,7 @@ export function ReportsPage() {
             </select>
           </FilterField>
 
-          <FilterField label="Ordenacao">
+          <FilterField label="Ordenação">
             <select
               className={inputClass}
               onChange={(event) => {
@@ -358,14 +504,14 @@ export function ReportsPage() {
                 <th className="w-[18%] px-4 py-3">Solicitante</th>
                 <th className="w-[14%] px-4 py-3">Criado em</th>
                 <th className="w-[10%] px-4 py-3">Status</th>
-                <th className="sticky right-0 w-[8.5rem] bg-[#171717] px-4 py-3 text-right">Acoes</th>
+                <th className="sticky right-0 w-[8.5rem] bg-[#171717] px-4 py-3 text-right">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#404040] bg-[#262626]">
               {loading ? (
                 <tr>
                   <td className="px-4 py-8 text-center text-sm text-[#a3a3a3]" colSpan={7}>
-                    Carregando relatorios medicos...
+                    Carregando relatórios...
                   </td>
                 </tr>
               ) : paginatedReports.length ? (
@@ -380,7 +526,7 @@ export function ReportsPage() {
               ) : (
                 <tr>
                   <td className="px-4 py-8 text-center text-sm text-[#a3a3a3]" colSpan={7}>
-                    Nenhum relatorio encontrado com os filtros atuais.
+                    Nenhum relatório encontrado com os filtros atuais.
                   </td>
                 </tr>
               )}
@@ -391,7 +537,7 @@ export function ReportsPage() {
         <div className="mt-4 flex flex-col gap-4 border-t border-[#404040] pt-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-[#a3a3a3]">
             Mostrando {enrichedReports.length ? startIndex + 1 : 0}-{Math.min(startIndex + ITEMS_PER_PAGE, enrichedReports.length)} de{' '}
-            {enrichedReports.length} relatorios
+            {enrichedReports.length} relatórios
           </p>
           <div className="flex items-center gap-2">
             <PageButton disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>
@@ -419,7 +565,7 @@ export function ReportsPage() {
       </section>
 
       {editorOpen ? (
-        <ReportEditorModal
+        <ReportEditorModalV3
           editor={editor}
           onChange={setEditor}
           onClose={() => setEditorOpen(false)}
@@ -438,6 +584,8 @@ export function ReportsPage() {
 }
 
 function ReportRow({ onEdit, onView, report }) {
+  const currentStatus = statusConfig[report.status] || statusConfig.draft
+
   return (
     <tr className="transition hover:bg-[#303030]">
       <td className="px-4 py-3 align-top text-[#a3a3a3]">{report.orderNumber || '-'}</td>
@@ -451,8 +599,8 @@ function ReportRow({ onEdit, onView, report }) {
       <td className="px-4 py-3 align-top whitespace-normal break-words text-[#a3a3a3]">{report.requestedBy || '-'}</td>
       <td className="px-4 py-3 align-top text-[#a3a3a3]">{formatDate(report.createdAt)}</td>
       <td className="px-4 py-3 align-top">
-        <span className={`rounded px-2 py-1 text-[10px] font-bold ${statusConfig[report.status].pill}`}>
-          {statusConfig[report.status].label}
+        <span className={`rounded px-2 py-1 text-[10px] font-bold ${currentStatus.pill}`}>
+          {currentStatus.label}
         </span>
       </td>
       <td className="sticky right-0 bg-[#262626] px-4 py-3 text-right shadow-[-10px_0_12px_-12px_rgba(0,0,0,0.75)]">
@@ -465,172 +613,273 @@ function ReportRow({ onEdit, onView, report }) {
   )
 }
 
-function ReportEditorModal({ editor, onChange, onClose, onSave, patientOptions, professionalOptions, saving }) {
-  const isValid = Boolean(editor.patientId)
+function ReportEditorModalV3({ editor, onChange, onClose, onSave, saving }) {
+  const [templateSearch, setTemplateSearch] = useState('')
+  const [templatesOpen, setTemplatesOpen] = useState(false)
+  const isValid = isReportEditorValid(editor)
+  const filteredTemplates = reportTemplates.filter((template) => {
+    const query = normalizeSearch(templateSearch)
+    const matchesSearch = !query || normalizeSearch([template.title, template.description, template.tags.join(' ')].join(' ')).includes(query)
+    return matchesSearch
+  })
 
   function updateField(field, value) {
     onChange((current) => ({ ...current, [field]: value }))
   }
 
+  function applyTemplate(template) {
+    setTemplatesOpen(false)
+    onChange((current) => ({
+      ...current,
+      exam: current.exam || template.exam,
+      cidCode: current.cidCode || template.cidCode,
+      diagnosis: current.diagnosis || template.diagnosis,
+      conclusion: current.conclusion || template.conclusion,
+      contentHtml: current.contentHtml ? `${current.contentHtml}<hr>${template.contentHtml}` : template.contentHtml,
+      contentJson: {
+        templateId: template.id,
+        templateTitle: template.title,
+        appliedAt: new Date().toISOString(),
+      },
+    }))
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+    <div className="report-editor-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3" onClick={onClose}>
       <div
-        className="flex max-h-[92vh] w-full max-w-4xl flex-col rounded-2xl border border-[#404040] bg-[#262626] shadow-xl"
+        className="report-editor-shell flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-[#404040] bg-[#242424] shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-[#404040] px-6 py-4">
-          <h2 className="text-lg font-bold text-[#e5e5e5]">
-            {editor.id ? 'Editar relatorio medico' : 'Novo relatorio medico'}
-          </h2>
-          <button className="rounded-lg p-1.5 transition hover:bg-[#2a2a2a]" onClick={onClose} type="button">
-            <ReportIcon className="size-4 text-[#a3a3a3]" name="x" />
+        <div className="report-editor-header flex items-center justify-between border-b border-[#404040] px-6 py-4">
+          <div className="flex items-center gap-3">
+            <span className="grid size-9 place-items-center rounded-sm bg-[#3b82f6] text-white">
+              <StethoscopeIcon className="size-5" />
+            </span>
+            <div>
+              <h2 className="text-lg font-bold text-[#f5f5f5]">{editor.id ? 'Editar relatório' : 'Novo relatório'}</h2>
+              <p className="text-xs text-[#a3a3a3]">Escolha um template opcional e edite o conteúdo do relatório.</p>
+            </div>
+          </div>
+          <button className="grid size-9 place-items-center rounded-sm text-[#a3a3a3] transition hover:bg-[#303030] hover:text-[#e5e5e5]" onClick={onClose} type="button">
+            <ReportIcon className="size-4" name="x" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <DarkField label="Paciente *">
-                <select className={inputClass} onChange={(event) => updateField('patientId', event.target.value)} value={editor.patientId}>
-                  <option value="">Selecione um paciente</option>
-                  {patientOptions.map((patient) => (
-                    <option key={patient.id} value={patient.id}>
-                      {patient.name}
-                    </option>
-                  ))}
-                </select>
-              </DarkField>
-
-              <DarkField label="Status">
-                <select className={inputClass} onChange={(event) => updateField('status', event.target.value)} value={editor.status}>
+        <div className="grid min-h-0 flex-1">
+          <main className="report-editor-body min-h-0 overflow-y-auto p-5">
+            <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+              <DarkField label="Status *">
+                <select className={`${inputClass} md:w-52`} onChange={(event) => updateField('status', event.target.value)} value={editor.status}>
                   <option value="draft">Rascunho</option>
+                  <option value="finalized">Finalizado</option>
                 </select>
               </DarkField>
+
+              <div className="relative">
+                <button
+                  className="report-template-trigger inline-flex h-10 items-center gap-2 rounded-sm border border-[#404040] bg-[#171717] px-4 text-sm font-semibold text-[#e5e5e5] transition hover:bg-[#303030]"
+                  onClick={() => setTemplatesOpen((current) => !current)}
+                  type="button"
+                >
+                  <ReportIcon className="size-4" name="file" />
+                  Templates
+                  <ReportIcon className="size-4" name="chevron-right" />
+                </button>
+
+                {templatesOpen ? (
+                  <div className="report-template-menu absolute right-0 top-12 z-10 w-[min(28rem,calc(100vw-2rem))] rounded-md border border-[#404040] bg-[#202020] p-3 shadow-2xl">
+                    <div className="relative mb-3">
+                      <ReportIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#a3a3a3]" name="search" />
+                      <input
+                        className="h-10 w-full rounded-sm border border-[#404040] bg-[#171717] pl-10 pr-3 text-sm text-[#e5e5e5] outline-none transition placeholder:text-[#a3a3a3] focus:border-[#3b82f6]"
+                        onChange={(event) => setTemplateSearch(event.target.value)}
+                        placeholder="Buscar templates..."
+                        value={templateSearch}
+                      />
+                    </div>
+                    <div className="max-h-80 overflow-y-auto">
+                      {filteredTemplates.length ? (
+                        filteredTemplates.map((template) => (
+                          <button
+                            className="block w-full rounded-sm border border-transparent px-3 py-3 text-left transition hover:border-[#3b82f6]/40 hover:bg-[#303030]"
+                            key={template.id}
+                            onClick={() => applyTemplate(template)}
+                            type="button"
+                          >
+                            <span className="flex items-center justify-between gap-3">
+                              <span className="font-semibold text-[#f5f5f5]">{template.title}</span>
+                              {template.popular ? <span className="rounded bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold text-amber-300">Popular</span> : null}
+                            </span>
+                            <span className="mt-1 block text-xs leading-5 text-[#a3a3a3]">{template.description}</span>
+                          </button>
+                        ))
+                      ) : (
+                        <p className="px-3 py-4 text-sm text-[#a3a3a3]">Nenhum template encontrado.</p>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <DarkField label="Exame">
-                <input
-                  className={inputClass}
-                  onChange={(event) => updateField('exam', event.target.value)}
-                  placeholder="Nome do exame"
-                  value={editor.exam}
-                />
-              </DarkField>
-
-              <DarkField label="Solicitante">
-                <div>
-                  <input
-                    className={inputClass}
-                    list="report-requested-by-suggestions"
-                    onChange={(event) => updateField('requestedBy', event.target.value)}
-                    placeholder="Nome do solicitante"
-                    value={editor.requestedBy}
-                  />
-                  <datalist id="report-requested-by-suggestions">
-                    {professionalOptions.map((professional) => (
-                      <option key={professional.id} value={professional.name} />
-                    ))}
-                  </datalist>
-                </div>
-              </DarkField>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <DarkField label="CID-10">
-                <input
-                  className={inputClass}
-                  onChange={(event) => updateField('cidCode', event.target.value)}
-                  placeholder="Ex: Z01.7"
-                  value={editor.cidCode}
-                />
-              </DarkField>
-
-              <DarkField label="Prazo">
-                <input
-                  className={`${inputClass} [color-scheme:dark]`}
-                  onChange={(event) => updateField('dueAt', event.target.value)}
-                  type="datetime-local"
-                  value={editor.dueAt}
-                />
-              </DarkField>
-            </div>
-
-            <DarkField label="Diagnostico">
-              <textarea
-                className={textareaClass}
-                onChange={(event) => updateField('diagnosis', event.target.value)}
-                placeholder="Diagnostico do relatorio"
-                value={editor.diagnosis}
-              />
-            </DarkField>
-
-            <DarkField label="Conclusao">
-              <textarea
-                className={textareaClass}
-                onChange={(event) => updateField('conclusion', event.target.value)}
-                placeholder="Conclusao do relatorio"
-                value={editor.conclusion}
-              />
-            </DarkField>
-
-            <DarkField label="Conteudo HTML">
-              <textarea
-                className={`${textareaClass} min-h-72`}
-                onChange={(event) => updateField('contentHtml', event.target.value)}
-                placeholder="<p>Conteudo do relatorio</p>"
+            <DarkField label="Editor de texto">
+              <RichTextEditor
+                onChange={(value) => updateField('contentHtml', value)}
                 value={editor.contentHtml}
               />
             </DarkField>
-
-            <div className="flex flex-wrap items-center gap-6">
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-[#e5e5e5]">
-                <input
-                  checked={editor.hideDate}
-                  className="size-4 accent-[#3b82f6]"
-                  onChange={(event) => updateField('hideDate', event.target.checked)}
-                  type="checkbox"
-                />
-                Ocultar data
-              </label>
-
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-[#e5e5e5]">
-                <input
-                  checked={editor.hideSignature}
-                  className="size-4 accent-[#3b82f6]"
-                  onChange={(event) => updateField('hideSignature', event.target.checked)}
-                  type="checkbox"
-                />
-                Ocultar assinatura
-              </label>
-            </div>
-          </div>
+          </main>
         </div>
 
-        <div className="flex items-center justify-between border-t border-[#404040] px-6 py-4">
-          <button
-            className="rounded-lg border border-[#404040] bg-[#262626] px-4 py-2 text-sm font-medium text-[#e5e5e5] transition hover:bg-[#2a2a2a]"
-            onClick={onClose}
-            type="button"
-          >
-            Cancelar
-          </button>
-          <button
-            className="inline-flex items-center gap-2 rounded-lg bg-[#3b82f6] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#2563eb] disabled:cursor-not-allowed disabled:opacity-40"
-            disabled={!isValid || saving}
-            onClick={onSave}
-            type="button"
-          >
-            <ReportIcon className="size-3.5" name="save" />
-            {saving ? 'Salvando...' : 'Salvar relatorio'}
-          </button>
+        <div className="report-editor-footer flex flex-wrap items-center justify-between gap-3 border-t border-[#404040] px-6 py-4">
+          <p className="text-xs font-semibold text-amber-300">
+            {!isValid ? '* Preencha o editor de texto para salvar.' : 'Relatório pronto para salvar.'}
+          </p>
+          <div className="flex gap-3">
+            <button className="rounded-sm border border-[#404040] bg-[#262626] px-4 py-2 text-sm font-semibold text-[#e5e5e5] transition hover:bg-[#303030]" onClick={onClose} type="button">
+              Cancelar
+            </button>
+            <button
+              className="inline-flex items-center gap-2 rounded-sm border border-[#3b82f6] bg-[#3b82f6] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#2563eb] disabled:cursor-not-allowed disabled:border-[#404040] disabled:bg-[#303030] disabled:text-[#737373]"
+              disabled={!isValid || saving}
+              onClick={onSave}
+              type="button"
+            >
+              <ReportIcon className="size-3.5" name="save" />
+              {saving ? 'Salvando...' : editor.status === 'finalized' ? 'Liberar relatório' : 'Salvar rascunho'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   )
 }
 
+function RichTextEditor({ onChange, value }) {
+  const lastSyncedHtmlRef = useRef(value || '')
+  const applyingExternalContentRef = useRef(false)
+  const tiptapEditor = useEditor({
+    extensions: [
+      StarterKit,
+      Underline,
+      TextAlign.configure({
+        types: ['heading', 'paragraph'],
+      }),
+    ],
+    content: value || '',
+    editorProps: {
+      attributes: {
+        class: 'report-rich-surface min-h-[560px] px-4 py-3 text-sm leading-6 text-[#e5e5e5] outline-none',
+      },
+    },
+    shouldRerenderOnTransaction: false,
+    onUpdate: ({ editor: currentEditor }) => {
+      if (applyingExternalContentRef.current) return
+
+      const nextHtml = currentEditor.getHTML()
+      lastSyncedHtmlRef.current = nextHtml
+      onChange(nextHtml)
+    },
+  })
+
+  useEffect(() => {
+    if (!tiptapEditor) return
+
+    const nextValue = value || ''
+    if (lastSyncedHtmlRef.current === nextValue) return
+
+    if (tiptapEditor.getHTML() === nextValue) {
+      lastSyncedHtmlRef.current = nextValue
+      return
+    }
+
+    applyingExternalContentRef.current = true
+    try {
+      tiptapEditor.commands.setContent(nextValue, { emitUpdate: false })
+    } finally {
+      applyingExternalContentRef.current = false
+    }
+    lastSyncedHtmlRef.current = nextValue
+  }, [tiptapEditor, value])
+
+  const blockFormat = tiptapEditor?.isActive('heading', { level: 2 })
+    ? 'h2'
+    : tiptapEditor?.isActive('heading', { level: 3 })
+      ? 'h3'
+      : 'p'
+
+  return (
+    <div className="report-rich-editor overflow-hidden rounded-sm border border-[#404040] bg-[#171717]">
+      <div className="report-rich-toolbar flex flex-wrap items-center gap-1 border-b border-[#404040] bg-[#202020] px-3 py-2">
+        <TipTapToolbarButton disabled={!tiptapEditor?.can().undo()} label="Desfazer" name="undo" onClick={() => tiptapEditor?.chain().focus().undo().run()} />
+        <TipTapToolbarButton disabled={!tiptapEditor?.can().redo()} label="Refazer" name="redo" onClick={() => tiptapEditor?.chain().focus().redo().run()} />
+        <span className="mx-1 h-5 w-px bg-[#404040]" />
+        <select
+          className="h-8 rounded-sm border border-[#404040] bg-[#171717] px-2 text-xs font-semibold text-[#d4d4d4]"
+          onChange={(event) => {
+            const selected = event.target.value
+
+            if (selected === 'h2') {
+              tiptapEditor?.chain().focus().toggleHeading({ level: 2 }).run()
+              return
+            }
+
+            if (selected === 'h3') {
+              tiptapEditor?.chain().focus().toggleHeading({ level: 3 }).run()
+              return
+            }
+
+            tiptapEditor?.chain().focus().setParagraph().run()
+          }}
+          value={blockFormat}
+        >
+          <option value="p">Padrao</option>
+          <option value="h2">Titulo</option>
+          <option value="h3">Subtitulo</option>
+        </select>
+        <TipTapToolbarButton active={tiptapEditor?.isActive('bold')} label="Negrito" name="bold" onClick={() => tiptapEditor?.chain().focus().toggleBold().run()} />
+        <TipTapToolbarButton active={tiptapEditor?.isActive('italic')} label="Italico" name="italic" onClick={() => tiptapEditor?.chain().focus().toggleItalic().run()} />
+        <TipTapToolbarButton active={tiptapEditor?.isActive('underline')} label="Sublinhado" name="underline" onClick={() => tiptapEditor?.chain().focus().toggleUnderline().run()} />
+        <TipTapToolbarButton active={tiptapEditor?.isActive('strike')} label="Tachado" name="strike" onClick={() => tiptapEditor?.chain().focus().toggleStrike().run()} />
+        <span className="mx-1 h-5 w-px bg-[#404040]" />
+        <TipTapToolbarButton active={tiptapEditor?.isActive({ textAlign: 'left' })} label="Alinhar a esquerda" name="align-left" onClick={() => tiptapEditor?.chain().focus().setTextAlign('left').run()} />
+        <TipTapToolbarButton active={tiptapEditor?.isActive({ textAlign: 'center' })} label="Centralizar" name="align-center" onClick={() => tiptapEditor?.chain().focus().setTextAlign('center').run()} />
+        <TipTapToolbarButton active={tiptapEditor?.isActive({ textAlign: 'right' })} label="Alinhar a direita" name="align-right" onClick={() => tiptapEditor?.chain().focus().setTextAlign('right').run()} />
+        <TipTapToolbarButton active={tiptapEditor?.isActive('bulletList')} label="Lista" name="list" onClick={() => tiptapEditor?.chain().focus().toggleBulletList().run()} />
+      </div>
+      <EditorContent editor={tiptapEditor} />
+    </div>
+  )
+}
+
+function TipTapToolbarButton({ active = false, disabled = false, label, name, onClick }) {
+  return (
+    <button
+      aria-label={label}
+      aria-pressed={active}
+      className={`grid size-8 place-items-center rounded-sm transition ${
+        active ? 'bg-[#3b82f6]/20 text-[#3b82f6]' : 'text-[#a3a3a3] hover:bg-[#303030] hover:text-[#e5e5e5]'
+      } disabled:cursor-not-allowed disabled:opacity-40`}
+      disabled={disabled}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={onClick}
+      title={label}
+      type="button"
+    >
+      <ReportIcon className="size-4" name={name} />
+    </button>
+  )
+}
+
+function sanitizePreviewHtml(value) {
+  return String(value || '')
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    .replace(/\son\w+="[^"]*"/gi, '')
+}
+
 function ReportViewModal({ onClose, report }) {
+  const currentStatus = statusConfig[report.status] || statusConfig.draft
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div
@@ -639,12 +888,22 @@ function ReportViewModal({ onClose, report }) {
       >
         <div className="flex items-center justify-between border-b border-[#404040] px-6 py-4">
           <div>
-            <h2 className="text-lg font-bold text-[#e5e5e5]">Relatorio medico</h2>
-            <p className="mt-1 text-xs text-[#a3a3a3]">{report.orderNumber || 'Sem numero'} </p>
+            <h2 className="text-lg font-bold text-[#e5e5e5]">Relatório</h2>
+            <p className="mt-1 text-xs text-[#a3a3a3]">{report.orderNumber || 'Sem número'} </p>
           </div>
-          <button className="rounded-lg p-1.5 transition hover:bg-[#2a2a2a]" onClick={onClose} type="button">
-            <ReportIcon className="size-4 text-[#a3a3a3]" name="x" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#404040] bg-[#1a1a1a] px-3 text-xs font-semibold text-[#e5e5e5] transition hover:bg-[#2a2a2a]"
+              onClick={() => printReportAsPdf(report, currentStatus)}
+              type="button"
+            >
+              <ReportIcon className="size-4" name="print" />
+              Imprimir PDF
+            </button>
+            <button className="rounded-lg p-1.5 transition hover:bg-[#2a2a2a]" onClick={onClose} type="button">
+              <ReportIcon className="size-4 text-[#a3a3a3]" name="x" />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
@@ -653,7 +912,7 @@ function ReportViewModal({ onClose, report }) {
             <DetailCard label="Solicitante" value={report.requestedBy || '-'} />
             <DetailCard label="Criado em" value={formatDate(report.createdAt)} />
             <DetailCard label="Criado por" value={report.createdByName} />
-            <DetailCard label="Status" value={statusConfig[report.status].label} />
+            <DetailCard label="Status" value={currentStatus.label} />
             <DetailCard label="Prazo" value={formatDateTime(report.dueAt)} />
           </div>
 
@@ -663,28 +922,18 @@ function ReportViewModal({ onClose, report }) {
           </div>
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <DetailBlock label="Diagnostico" value={report.diagnosis || '-'} />
-            <DetailBlock label="Conclusao" value={report.conclusion || '-'} />
+            <DetailBlock label="Diagnóstico" value={report.diagnosis || '-'} />
+            <DetailBlock label="Conclusão" value={report.conclusion || '-'} />
           </div>
-
-          <div className="mt-4 flex flex-wrap gap-3 text-xs text-[#a3a3a3]">
-            <span className="rounded-full border border-[#404040] px-3 py-1">
-              {report.hideDate ? 'Data oculta' : 'Data visivel'}
-            </span>
-            <span className="rounded-full border border-[#404040] px-3 py-1">
-              {report.hideSignature ? 'Assinatura oculta' : 'Assinatura visivel'}
-            </span>
-          </div>
-
           <div className="mt-6 rounded-xl border border-[#404040] bg-[#1a1a1a] p-5">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#a3a3a3]">Conteudo HTML</p>
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#a3a3a3]">Complemento</p>
             {report.contentHtml ? (
               <div
-                className="prose prose-invert max-w-none text-sm text-[#e5e5e5]"
-                dangerouslySetInnerHTML={{ __html: report.contentHtml }}
+                className="whitespace-pre-wrap text-sm leading-6 text-[#e5e5e5]"
+                dangerouslySetInnerHTML={{ __html: sanitizePreviewHtml(report.contentHtml) }}
               />
             ) : (
-              <p className="text-sm text-[#a3a3a3]">Nenhum conteudo HTML informado.</p>
+              <p className="text-sm text-[#a3a3a3]">Nenhum complemento informado.</p>
             )}
           </div>
         </div>
@@ -704,10 +953,10 @@ function FilterField({ children, label }) {
 
 function DarkField({ children, label }) {
   return (
-    <label className="block">
+    <div className="block">
       <span className={labelClass}>{label}</span>
       {children}
-    </label>
+    </div>
   )
 }
 
@@ -789,6 +1038,113 @@ function toDateTimeLocal(value) {
   return `${year}-${month}-${day}T${hours}:${minutes}`
 }
 
+function uniqueValues(values) {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))]
+}
+
+function isReportEditorValid(editor) {
+  return [
+    editor.status,
+    stripHtml(editor.contentHtml),
+  ].every((value) => String(value || '').trim())
+}
+
+function stripHtml(value) {
+  return String(value || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function normalizeSearch(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+}
+
+function printReportAsPdf(report, status) {
+  const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=900,height=1100')
+
+  if (!printWindow) {
+    window.print()
+    return
+  }
+
+  printWindow.document.write(`
+    <!doctype html>
+    <html lang="pt-BR">
+      <head>
+        <meta charset="utf-8" />
+        <title>Relatório ${escapeHtml(report.orderNumber || '')}</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { color: #171717; font-family: Arial, sans-serif; margin: 40px; }
+          h1 { font-size: 24px; margin: 0 0 4px; }
+          .muted { color: #525252; font-size: 12px; }
+          .grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 24px; }
+          .box { border: 1px solid #d4d4d4; border-radius: 8px; padding: 12px; }
+          .label { color: #525252; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+          .value { font-size: 13px; margin-top: 6px; white-space: pre-wrap; }
+          .section { margin-top: 20px; }
+          @media print { body { margin: 24mm; } button { display: none; } }
+        </style>
+      </head>
+      <body>
+        <h1>Relatório</h1>
+        <p class="muted">${escapeHtml(report.orderNumber || 'Sem número')}</p>
+        <div class="grid">
+          ${printDetail('Paciente', report.patientName)}
+          ${printDetail('Solicitante', report.requestedBy || '-')}
+          ${printDetail('Criado em', formatDate(report.createdAt))}
+          ${printDetail('Criado por', report.createdByName)}
+          ${printDetail('Status', status.label)}
+          ${printDetail('Prazo', formatDateTime(report.dueAt))}
+        </div>
+        <div class="grid">
+          ${printDetail('Exame', report.exam || '-')}
+          ${printDetail('CID-10', report.cidCode || '-')}
+        </div>
+        <div class="section box">
+          <p class="label">Diagnóstico</p>
+          <p class="value">${escapeHtml(report.diagnosis || '-')}</p>
+        </div>
+        <div class="section box">
+          <p class="label">Conclusão</p>
+          <p class="value">${escapeHtml(report.conclusion || '-')}</p>
+        </div>
+        <div class="section box">
+          <p class="label">Complemento</p>
+          <div class="value">${report.contentHtml ? sanitizePreviewHtml(report.contentHtml) : 'Nenhum complemento informado.'}</div>
+        </div>
+      </body>
+    </html>
+  `)
+  printWindow.document.close()
+  printWindow.focus()
+  printWindow.print()
+}
+
+function printDetail(label, value) {
+  return `
+    <div class="box">
+      <p class="label">${escapeHtml(label)}</p>
+      <p class="value">${escapeHtml(value || '-')}</p>
+    </div>
+  `
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
 function ReportIcon({ className = 'size-4', name }) {
   const common = {
     className,
@@ -804,6 +1160,105 @@ function ReportIcon({ className = 'size-4', name }) {
     return (
       <svg {...common}>
         <path d="M12 5v14M5 12h14" />
+      </svg>
+    )
+  }
+
+  if (name === 'bolt') {
+    return (
+      <svg {...common}>
+        <path d="m13 2-8 12h6l-1 8 8-12h-6l1-8Z" />
+      </svg>
+    )
+  }
+
+  if (name === 'search') {
+    return (
+      <svg {...common}>
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-3.5-3.5" />
+      </svg>
+    )
+  }
+
+  if (name === 'undo') {
+    return (
+      <svg {...common}>
+        <path d="M9 7 5 11l4 4" />
+        <path d="M5 11h9a5 5 0 0 1 5 5v1" />
+      </svg>
+    )
+  }
+
+  if (name === 'redo') {
+    return (
+      <svg {...common}>
+        <path d="m15 7 4 4-4 4" />
+        <path d="M19 11h-9a5 5 0 0 0-5 5v1" />
+      </svg>
+    )
+  }
+
+  if (name === 'bold') {
+    return (
+      <svg {...common}>
+        <path d="M7 5h6a3 3 0 0 1 0 6H7zM7 11h7a3 3 0 0 1 0 6H7z" />
+      </svg>
+    )
+  }
+
+  if (name === 'italic') {
+    return (
+      <svg {...common}>
+        <path d="M10 5h7M7 19h7M14 5l-4 14" />
+      </svg>
+    )
+  }
+
+  if (name === 'underline') {
+    return (
+      <svg {...common}>
+        <path d="M7 5v6a5 5 0 0 0 10 0V5M5 21h14" />
+      </svg>
+    )
+  }
+
+  if (name === 'strike') {
+    return (
+      <svg {...common}>
+        <path d="M5 12h14M8 17a5 5 0 0 0 4 2c2.8 0 5-1.4 5-3.5 0-4-9-2.5-9-7C8 6.6 9.8 5 12.5 5c1.6 0 3 .5 4 1.5" />
+      </svg>
+    )
+  }
+
+  if (name === 'align-left') {
+    return (
+      <svg {...common}>
+        <path d="M4 6h16M4 10h10M4 14h16M4 18h10" />
+      </svg>
+    )
+  }
+
+  if (name === 'align-center') {
+    return (
+      <svg {...common}>
+        <path d="M4 6h16M7 10h10M4 14h16M7 18h10" />
+      </svg>
+    )
+  }
+
+  if (name === 'align-right') {
+    return (
+      <svg {...common}>
+        <path d="M4 6h16M10 10h10M4 14h16M10 18h10" />
+      </svg>
+    )
+  }
+
+  if (name === 'list') {
+    return (
+      <svg {...common}>
+        <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />
       </svg>
     )
   }
@@ -863,6 +1318,24 @@ function ReportIcon({ className = 'size-4', name }) {
       <svg {...common}>
         <path d="M5 21h14a1 1 0 0 0 1-1V7.4a1 1 0 0 0-.3-.7l-2.4-2.4a1 1 0 0 0-.7-.3H5a1 1 0 0 0-1 1v15a1 1 0 0 0 1 1Z" />
         <path d="M8 21v-6h8v6M8 4v5h7" />
+      </svg>
+    )
+  }
+
+  if (name === 'print') {
+    return (
+      <svg {...common}>
+        <path d="M7 8V4h10v4" />
+        <path d="M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" />
+        <path d="M7 14h10v7H7zM17 12h.01" />
+      </svg>
+    )
+  }
+
+  if (name === 'check') {
+    return (
+      <svg {...common}>
+        <path d="m5 12 4 4L19 6" />
       </svg>
     )
   }

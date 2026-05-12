@@ -1,22 +1,34 @@
-import { apiConfig, getAuthenticatedHeaders } from '../config/api.js'
+import { apiConfig, getAnonHeaders, getAuthenticatedHeaders } from '../config/api.js'
+import { getResponseError } from './repositoryUtils.js'
 
 export const patientRepository = {
   // 1. Listar pacientes
   async getAll() {
     const response = await fetch(`${apiConfig.restUrl}/patients?select=*`, { headers: getAuthenticatedHeaders() })
-    if (!response.ok) throw new Error('Erro ao buscar pacientes')
+    if (!response.ok) throw new Error(await getResponseError(response, 'Erro ao buscar pacientes.'))
     return response.json()
   },
 
   async getById(patientId) {
-    const patients = await this.getAll()
+    const [patients, appointments] = await Promise.all([
+      this.getAll(),
+      getAppointments().catch(() => []),
+    ])
     const patient = patients.find((p) => String(p.id) === String(patientId)) || null
-    return patient ? mapPatientToDetail(patient) : null
+    return patient ? mapPatientToDetail(patient, appointments) : null
   },
 
-  async getDirectoryRows() {
-    const patients = await this.getAll()
-    return patients.map(mapPatientToDirectory)
+  async getDirectoryRows({ doctorId } = {}) {
+    const [patients, appointments] = await Promise.all([
+      this.getAll(),
+      getAppointments({ doctorId }).catch(() => []),
+    ])
+
+    const visiblePatients = doctorId
+      ? getPatientsFromDoctorAppointments(patients, appointments)
+      : patients
+
+    return visiblePatients.map((patient) => mapPatientToDirectory(patient, appointments))
   },
 
   // 2. Criar paciente (direto)
@@ -26,7 +38,7 @@ export const patientRepository = {
       cpf: data.cpf,
       email: data.email,
       phone_mobile: data.phone,
-      birth_date: data.birthDate || null,
+      birth_date: data.birthDate || data.birth_date || null,
       created_by: data.createdBy || '00000000-0000-0000-0000-000000000000',
     }
 
@@ -37,9 +49,11 @@ export const patientRepository = {
     })
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}))
-      console.error('Erro da API ao criar paciente:', error)
-      throw new Error(error.message || error.hint || JSON.stringify(error))
+      if ([401, 403].includes(response.status)) {
+        return this.createWithValidation(data)
+      }
+
+      throw new Error(await getResponseError(response, 'Erro ao criar paciente.'))
     }
 
     return response.json()
@@ -52,7 +66,7 @@ export const patientRepository = {
       cpf: data.cpf,
       email: data.email,
       phone_mobile: data.phone,
-      birth_date: data.birthDate || null,
+      birth_date: data.birthDate || data.birth_date || null,
       created_by: data.createdBy || '00000000-0000-0000-0000-000000000000',
     }
 
@@ -63,8 +77,30 @@ export const patientRepository = {
     })
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}))
-      throw new Error(error.message || 'Erro ao criar paciente com validacao')
+      throw new Error(await getResponseError(response, 'Erro ao criar paciente com validação.'))
+    }
+
+    return response.json()
+  },
+
+  async registerPublic(data) {
+    const body = cleanPayload({
+      full_name: data.name || data.full_name,
+      cpf: data.cpf,
+      email: data.email,
+      phone_mobile: data.phone || data.phone_mobile,
+      birth_date: data.birthDate || data.birth_date || null,
+      redirect_url: data.redirectUrl || data.redirect_url,
+    })
+
+    const response = await fetch(`${apiConfig.functionsUrl}/register-patient`, {
+      method: 'POST',
+      headers: getAnonHeaders(),
+      body: JSON.stringify(body),
+    })
+
+    if (!response.ok) {
+      throw new Error(await getResponseError(response, 'Erro ao realizar auto-cadastro de paciente.'))
     }
 
     return response.json()
@@ -77,7 +113,7 @@ export const patientRepository = {
       cpf: data.cpf,
       email: data.email,
       phone_mobile: data.phone,
-      birth_date: data.birthDate || null,
+      birth_date: data.birthDate || data.birth_date || null,
     }
 
     const response = await fetch(`${apiConfig.restUrl}/patients?id=eq.${patientId}`, {
@@ -86,7 +122,7 @@ export const patientRepository = {
       body: JSON.stringify(body),
     })
 
-    if (!response.ok) throw new Error('Erro ao atualizar paciente')
+    if (!response.ok) throw new Error(await getResponseError(response, 'Erro ao atualizar paciente.'))
     return response.json()
   },
 
@@ -97,44 +133,203 @@ export const patientRepository = {
       headers: getAuthenticatedHeaders(),
     })
 
-    if (!response.ok) throw new Error('Erro ao deletar paciente')
+    if (!response.ok) throw new Error(await getResponseError(response, 'Erro ao deletar paciente.'))
     return true
   },
 }
 
-function mapPatientToDirectory(patient) {
+function mapPatientToDirectory(patient, appointments = []) {
+  const appointmentSummary = summarizeAppointments(patient.id, appointments)
+  const city = getFirstValue(patient, ['city', 'cidade', 'address_city', 'municipio'], patient.address?.city)
+  const state = getFirstValue(patient, ['state', 'uf', 'address_state', 'estado'], patient.address?.state)
+  const insurance = getFirstValue(patient, ['insurance', 'convenio', 'health_insurance', 'insurance_name'])
+
   return {
     ...patient,
     name: patient.name || patient.full_name || patient.nome || 'Paciente',
     phone: patient.phone || patient.phone_mobile || patient.telefone || '',
     detailId: patient.id,
-    insurance: patient.insurance || patient.convenio || 'Particular',
-    city: patient.city || patient.cidade || 'Recife',
-    state: patient.state || patient.uf || 'PE',
+    insurance: normalizeInsurance(insurance),
+    city,
+    state,
     vip: Boolean(patient.vip),
-    lastVisitIso: patient.lastVisitIso || patient.last_visit_iso || null,
-    lastVisit: patient.lastVisit || patient.last_visit || 'Ainda nao houve atendimento',
-    nextVisit: patient.nextVisit || patient.next_visit || 'Nenhum atendimento agendado',
+    birthDate: patient.birthDate || patient.birth_date || '',
+    motherName: patient.motherName || patient.mother_name || patient.nome_mae || '',
+    fatherName: patient.fatherName || patient.father_name || patient.nome_pai || '',
+    ethnicity: patient.ethnicity || patient.etnia || '',
+    maritalStatus: patient.maritalStatus || patient.marital_status || patient.estado_civil || '',
+    phoneSecondary: patient.phoneSecondary || patient.phone_secondary || patient.phone_home || '',
+    zipCode: patient.zipCode || patient.zip_code || patient.cep || '',
+    addressStreet: patient.addressStreet || patient.address_street || patient.street || patient.logradouro || patient.address || '',
+    addressNumber: patient.addressNumber || patient.address_number || patient.numero || '',
+    addressComplement: patient.addressComplement || patient.address_complement || patient.complemento || '',
+    plan: patient.plan || patient.plano || patient.insurance_plan || '',
+    notesText: patient.notesText || patient.notes_text || patient.observations || patient.observacoes || '',
+    lastVisitIso: patient.lastVisitIso || patient.last_visit_iso || appointmentSummary.lastVisitIso || null,
+    lastVisit: patient.lastVisit || patient.last_visit || appointmentSummary.lastVisit || '',
+    nextVisit: patient.nextVisit || patient.next_visit || appointmentSummary.nextVisit || '',
   }
 }
 
-function mapPatientToDetail(patient) {
-  const directory = mapPatientToDirectory(patient)
+function mapPatientToDetail(patient, appointments = []) {
+  const directory = mapPatientToDirectory(patient, appointments)
 
   return {
     ...directory,
     age: patient.age || patient.idade || calculateAge(patient.birth_date),
-    document: patient.document || patient.cpf || 'CPF nao informado',
-    plan: directory.insurance,
+    document: patient.document || patient.cpf || 'CPF não informado',
+    plan: directory.plan || directory.insurance,
     condition: patient.condition || patient.condicao || 'Sem condicao principal',
     status: patient.status || 'Acompanhamento',
     risk: patient.risk || patient.risco || 'Baixo',
     email: patient.email || '',
-    address: patient.address || patient.endereco || 'Endereco nao informado',
+    address: formatAddress(directory) || patient.address || patient.endereco || 'Endereço não informado',
     team: patient.team || patient.equipe || [],
-    notes: patient.notes || patient.observacoes || [],
+    notes: normalizeNotes(patient.notes || patient.observacoes || directory.notesText),
     exams: patient.exams || patient.exames || [],
   }
+}
+
+async function getAppointments({ doctorId } = {}) {
+  const query = new URLSearchParams()
+  query.set('select', '*,patients(*)')
+  if (doctorId) {
+    query.set('doctor_id', `eq.${doctorId}`)
+  }
+
+  const response = await fetch(`${apiConfig.restUrl}/appointments?${query.toString()}`, {
+    headers: getAuthenticatedHeaders(),
+  })
+
+  if (!response.ok) return []
+  return response.json()
+}
+
+function getPatientsFromDoctorAppointments(patients, appointments) {
+  const patientById = new Map(
+    patients
+      .map((patient) => [normalizeId(patient.id), patient])
+      .filter(([id]) => id),
+  )
+  const visibleIds = new Set()
+
+  for (const appointment of appointments) {
+    const patientId = normalizeId(
+      appointment.patient_id ||
+      appointment.patientId ||
+      appointment.paciente_id ||
+      appointment.patients?.id ||
+      appointment.patient?.id ||
+      appointment.paciente?.id,
+    )
+
+    if (!patientId) continue
+
+    visibleIds.add(patientId)
+
+    if (!patientById.has(patientId)) {
+      const embeddedPatient = appointment.patients || appointment.patient || appointment.paciente
+      if (embeddedPatient) {
+        patientById.set(patientId, { ...embeddedPatient, id: embeddedPatient.id || patientId })
+      }
+    }
+  }
+
+  return [...visibleIds]
+    .map((patientId) => patientById.get(patientId))
+    .filter(Boolean)
+}
+
+function summarizeAppointments(patientId, appointments) {
+  const now = new Date()
+  const normalizedPatientId = String(patientId)
+  const patientAppointments = appointments
+    .filter((appointment) => String(appointment.patient_id || appointment.patientId || appointment.paciente_id || '') === normalizedPatientId)
+    .map((appointment) => ({
+      ...appointment,
+      date: getAppointmentDate(appointment),
+    }))
+    .filter((appointment) => appointment.date)
+    .sort((a, b) => a.date - b.date)
+
+  const past = patientAppointments.filter((appointment) => appointment.date < now)
+  const future = patientAppointments.filter((appointment) => appointment.date >= now)
+  const last = past.at(-1)
+  const next = future[0]
+
+  return {
+    lastVisitIso: last ? formatDateInput(last.date) : null,
+    lastVisit: last ? formatAppointmentLabel(last.date) : '',
+    nextVisit: next ? formatAppointmentLabel(next.date) : '',
+  }
+}
+
+function getAppointmentDate(appointment) {
+  if (appointment.scheduled_at) {
+    const date = new Date(appointment.scheduled_at)
+    return Number.isNaN(date.getTime()) ? null : date
+  }
+
+  const dateValue = appointment.date || appointment.appointment_date || appointment.data
+  const timeValue = appointment.time || appointment.appointment_time || appointment.hora || '00:00'
+  if (!dateValue) return null
+
+  const date = new Date(`${dateValue}T${timeValue}`)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function formatAppointmentLabel(date) {
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+function formatDateInput(date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function getFirstValue(source, keys, fallback = '') {
+  for (const key of keys) {
+    if (source?.[key]) return source[key]
+  }
+
+  return fallback || ''
+}
+
+function normalizeId(value) {
+  return String(value || '').trim()
+}
+
+function formatAddress(patient) {
+  return [
+    patient.addressStreet,
+    patient.addressNumber,
+    patient.addressComplement,
+    patient.city,
+    patient.state,
+    patient.zipCode,
+  ]
+    .filter(Boolean)
+    .join(', ')
+}
+
+function normalizeNotes(notes) {
+  if (Array.isArray(notes)) return notes
+  if (!notes) return []
+  return [String(notes)]
+}
+
+function normalizeInsurance(value) {
+  const normalized = String(value || '').trim()
+  if (normalized.toLowerCase() === 'bradesco saude') return 'Bradesco Saúde'
+  return normalized
 }
 
 function calculateAge(birthDate) {
@@ -152,4 +347,10 @@ function calculateAge(birthDate) {
   }
 
   return age
+}
+
+function cleanPayload(payload) {
+  return Object.fromEntries(
+    Object.entries(payload).filter(([, value]) => value !== undefined && value !== null && value !== ''),
+  )
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
+import { hasCapability } from '../config/permissions.js'
 import { patientRepository } from '../repositories/patientRepository.js'
 const ITEMS_PER_PAGE = 25
 
@@ -14,7 +15,39 @@ const patientTabs = [
   { label: 'Documentos', value: 'documentos' },
 ]
 
-export function PatientsPage({ navigate }) {
+const BRAZILIAN_STATES = [
+  { value: 'AC', label: 'Acre' },
+  { value: 'AL', label: 'Alagoas' },
+  { value: 'AP', label: 'Amapá' },
+  { value: 'AM', label: 'Amazonas' },
+  { value: 'BA', label: 'Bahia' },
+  { value: 'CE', label: 'Ceará' },
+  { value: 'DF', label: 'Distrito Federal' },
+  { value: 'ES', label: 'Espírito Santo' },
+  { value: 'GO', label: 'Goiás' },
+  { value: 'MA', label: 'Maranhão' },
+  { value: 'MT', label: 'Mato Grosso' },
+  { value: 'MS', label: 'Mato Grosso do Sul' },
+  { value: 'MG', label: 'Minas Gerais' },
+  { value: 'PA', label: 'Pará' },
+  { value: 'PB', label: 'Paraíba' },
+  { value: 'PR', label: 'Paraná' },
+  { value: 'PE', label: 'Pernambuco' },
+  { value: 'PI', label: 'Piauí' },
+  { value: 'RJ', label: 'Rio de Janeiro' },
+  { value: 'RN', label: 'Rio Grande do Norte' },
+  { value: 'RS', label: 'Rio Grande do Sul' },
+  { value: 'RO', label: 'Rondônia' },
+  { value: 'RR', label: 'Roraima' },
+  { value: 'SC', label: 'Santa Catarina' },
+  { value: 'SP', label: 'São Paulo' },
+  { value: 'SE', label: 'Sergipe' },
+  { value: 'TO', label: 'Tocantins' },
+]
+
+const INSURANCE_OPTIONS = ['Unimed', 'Bradesco Saúde', 'Amil']
+
+export function PatientsPage({ navigate, role }) {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -42,13 +75,22 @@ export function PatientsPage({ navigate }) {
   }, [])
 
   const editingPatient = rows.find((patient) => patient.id === editingId)
-  const insuranceOptions = useMemo(() => [...new Set(rows.map((patient) => patient.insurance).filter(Boolean))], [rows])
-  const stateOptions = useMemo(() => [...new Set(rows.map((patient) => patient.state).filter(Boolean))], [rows])
   const hasAdvancedFilters = city || state || ageMin || ageMax || lastVisitSince
+  const canEditPatients = hasCapability(role, 'canEditPatients')
 
   const filteredPatients = useMemo(() => {
     return rows.filter((patient) => {
-      const haystack = [patient.name, patient.cpf, patient.document, patient.insurance, patient.phone]
+      const haystack = [
+        patient.name,
+        patient.cpf,
+        patient.document,
+        patient.insurance,
+        patient.phone,
+        patient.email,
+        patient.city,
+        patient.state,
+        patient.motherName,
+      ]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
@@ -57,7 +99,7 @@ export function PatientsPage({ navigate }) {
         return false
       }
 
-      if (insurance && patient.insurance !== insurance) {
+      if (insurance && normalizeFilterValue(patient.insurance) !== normalizeFilterValue(insurance)) {
         return false
       }
 
@@ -65,19 +107,20 @@ export function PatientsPage({ navigate }) {
         return false
       }
 
-      if (vip === 'Nao' && patient.vip) {
+      if (vip === 'Não' && patient.vip) {
         return false
       }
 
-      if (birthday === 'Hoje' && patient.birthday !== '07/04') {
+      const patientBirthday = getPatientBirthday(patient)
+      if (birthday === 'Hoje' && patientBirthday !== getTodayBirthday()) {
         return false
       }
 
-      if (birthday === 'Neste mes' && !patient.birthday?.endsWith('/04')) {
+      if (birthday === 'Neste mês' && !patientBirthday.endsWith(`/${getCurrentMonth()}`)) {
         return false
       }
 
-      if (city && !patient.city.toLowerCase().includes(city.toLowerCase())) {
+      if (city && !String(patient.city || '').toLowerCase().includes(city.toLowerCase())) {
         return false
       }
 
@@ -85,15 +128,16 @@ export function PatientsPage({ navigate }) {
         return false
       }
 
-      if (ageMin && patient.age < Number(ageMin)) {
+      const patientAge = Number(patient.age) || 0
+      if (ageMin && patientAge < Number(ageMin)) {
         return false
       }
 
-      if (ageMax && patient.age > Number(ageMax)) {
+      if (ageMax && patientAge > Number(ageMax)) {
         return false
       }
 
-      if (lastVisitSince && patient.lastVisitIso && patient.lastVisitIso < lastVisitSince) {
+      if (lastVisitSince && (!patient.lastVisitIso || patient.lastVisitIso < lastVisitSince)) {
         return false
       }
 
@@ -117,24 +161,30 @@ export function PatientsPage({ navigate }) {
   }
 
   function openForm(patientId = null) {
+    if (!canEditPatients) return
     setEditingId(patientId)
     setOpenMenuId(null)
     setView('form')
   }
 
   async function savePatient(patient) {
+  if (!canEditPatients) {
+    window.alert('Você não tem permissão para salvar pacientes.')
+    return
+  }
+
   const isNew = !rows.some((item) => item.id === patient.id)
   setSaving(true)
 
   try {
     if (isNew) {
-      const [created] = await patientRepository.create(patient)
+      const created = normalizeCreatedPatient(await patientRepository.create(patient))
       const newRow = {
         ...patient,
-        id: created.id,
-        detailId: created.id,
-        name: created.full_name || patient.name,
-        phone: created.phone_mobile || patient.phone,
+        id: created?.id || patient.id,
+        detailId: created?.id || patient.detailId || patient.id,
+        name: created?.full_name || created?.name || patient.name,
+        phone: created?.phone_mobile || created?.phone || patient.phone,
       }
       setRows((currentRows) => [newRow, ...currentRows])
     } else {
@@ -153,19 +203,6 @@ export function PatientsPage({ navigate }) {
   setEditingId(null)
   setPage(1)
   setView('list')
-}
-
-async function deletePatient(patientId) {
-  if (window.confirm('Tem certeza que deseja excluir este paciente?')) {
-    try {
-      await patientRepository.remove(patientId)
-      setRows((currentRows) => currentRows.filter((patient) => patient.id !== patientId))
-    } catch (err) {
-      window.alert(`Erro ao excluir paciente: ${err.message}`)
-    }
-    setOpenMenuId(null)
-    setPage(1)
-  }
 }
 
   function openDetail(patient) {
@@ -206,16 +243,18 @@ async function deletePatient(patientId) {
       <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-[#e5e5e5]">Pacientes</h1>
-          <p className="mt-1 text-sm text-[#a3a3a3]">Gerencie as informacoes de seus pacientes</p>
+          <p className="mt-1 text-sm text-[#a3a3a3]">Gerencie as informações de seus pacientes</p>
         </div>
-        <button
-          className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[#3b82f6] px-4 text-sm font-medium text-white shadow-sm transition hover:bg-[#2563eb] md:w-auto"
-          onClick={() => openForm()}
-          type="button"
-        >
-          <PatientIcon name="user-plus" />
-          Adicionar
-        </button>
+        {canEditPatients ? (
+          <button
+            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[#3b82f6] px-4 text-sm font-medium text-white shadow-sm transition hover:bg-[#2563eb] md:w-auto"
+            onClick={() => openForm()}
+            type="button"
+          >
+            <PatientIcon name="user-plus" />
+            Adicionar
+          </button>
+        ) : null}
       </div>
 
       <section className="rounded-2xl border border-[#404040] bg-[#262626] px-6 py-8 shadow-sm xl:py-14">
@@ -242,7 +281,7 @@ async function deletePatient(patientId) {
               setInsurance(value)
               setPage(1)
             }}
-            options={insuranceOptions}
+            options={INSURANCE_OPTIONS}
             value={insurance}
           />
 
@@ -253,7 +292,7 @@ async function deletePatient(patientId) {
               setVip(value)
               setPage(1)
             }}
-            options={['Sim', 'Nao']}
+            options={['Sim', 'Não']}
             value={vip}
           />
 
@@ -266,7 +305,7 @@ async function deletePatient(patientId) {
                 setBirthday(value)
                 setPage(1)
               }}
-              options={['Hoje', 'Neste mes']}
+              options={['Hoje', 'Neste mês']}
               value={birthday}
             />
             <button
@@ -310,7 +349,7 @@ async function deletePatient(patientId) {
                 <th className="w-[8%] px-6 py-4">Estado</th>
                 <th className="w-[16%] px-6 py-4">Ultimo atendimento</th>
                 <th className="w-[18%] px-6 py-4">Proximo atendimento</th>
-                <th className="sticky right-0 w-[8.5rem] bg-[#171717] px-6 py-4 text-right">Acoes</th>
+                <th className="sticky right-0 w-[8.5rem] bg-[#171717] px-6 py-4 text-right">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#404040] bg-[#262626]">
@@ -327,21 +366,24 @@ async function deletePatient(patientId) {
                             {patient.name}
                           </span>
                           <span className="mt-0.5 block whitespace-normal break-words text-xs text-[#a3a3a3]">
-                            {patient.insurance || 'Sem convenio'} {patient.vip ? ' | VIP' : ''}
+                            {patient.insurance || missingValue('Convênio')} {patient.vip ? ' | VIP' : ''}
                           </span>
                         </span>
                       </button>
                     </td>
-                    <td className="px-6 py-4 align-top whitespace-normal break-words text-[#a3a3a3]">{patient.phone}</td>
-                    <td className="px-6 py-4 align-top whitespace-normal break-words text-[#a3a3a3]">{patient.city}</td>
-                    <td className="px-6 py-4 align-top text-[#a3a3a3]">{patient.state}</td>
-                    <td className="px-6 py-4 align-top whitespace-normal break-words text-[#a3a3a3]">{patient.lastVisit || 'Ainda nao houve atendimento'}</td>
+                    <td className="px-6 py-4 align-top whitespace-normal break-words text-[#a3a3a3]">{patient.phone || missingValue('Telefone')}</td>
+                    <td className="px-6 py-4 align-top whitespace-normal break-words text-[#a3a3a3]">{patient.city || missingValue('Cidade')}</td>
+                    <td className="px-6 py-4 align-top text-[#a3a3a3]">{patient.state || missingValue('Estado')}</td>
+                    <td className="px-6 py-4 align-top whitespace-normal break-words text-[#a3a3a3]">{patient.lastVisit || 'Ainda não houve atendimento'}</td>
                     <td className="px-6 py-4 align-top whitespace-normal break-words text-[#a3a3a3]">{patient.nextVisit || 'Nenhum atendimento agendado'}</td>
-                    <td className="relative sticky right-0 bg-[#262626] px-6 py-4 text-right shadow-[-10px_0_12px_-12px_rgba(0,0,0,0.75)]">
+                    <td className="sticky right-0 bg-[#262626] px-4 py-4 text-right shadow-[-10px_0_12px_-12px_rgba(0,0,0,0.75)]">
                       <button
-                        aria-label={`Acoes de ${patient.name}`}
+                        aria-label={`Ações de ${patient.name}`}
                         className="rounded p-1 text-[#a3a3a3] transition hover:bg-[#333333] hover:text-[#e5e5e5]"
-                        onClick={() => setOpenMenuId(openMenuId === patient.id ? null : patient.id)}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setOpenMenuId(openMenuId === patient.id ? null : patient.id)
+                        }}
                         type="button"
                       >
                         <PatientIcon className="size-5" name="more" />
@@ -350,13 +392,13 @@ async function deletePatient(patientId) {
                         <>
                           <button
                             aria-label="Fechar menu"
-                            className="fixed inset-0 z-10 cursor-default"
+                            className="fixed inset-0 z-40 cursor-default"
                             onClick={() => setOpenMenuId(null)}
                             type="button"
                           />
-                          <div className="absolute right-8 top-10 z-20 w-48 rounded-lg border border-[#404040] bg-[#303030] py-1 text-left shadow-lg">
+                          <div className="fixed right-8 z-50 w-48 rounded-md border border-[#404040] bg-[#262626] p-1 text-left shadow-lg">
                             <ActionItem icon="file" label="Ver detalhes" onClick={() => openDetail(patient)} />
-                            <ActionItem icon="edit" label="Editar" onClick={() => openForm(patient.id)} />
+                            {canEditPatients ? <ActionItem icon="edit" label="Editar" onClick={() => openForm(patient.id)} /> : null}
                             <ActionItem
                               icon="calendar"
                               label="Marcar consulta"
@@ -365,7 +407,6 @@ async function deletePatient(patientId) {
                                 navigate('/agenda')
                               }}
                             />
-                            <ActionItem danger icon="trash" label="Excluir" onClick={() => deletePatient(patient.id)} />
                           </div>
                         </>
                       ) : null}
@@ -431,7 +472,7 @@ async function deletePatient(patientId) {
           setLastVisitSince={setLastVisitSince}
           setState={setState}
           state={state}
-          stateOptions={stateOptions}
+          stateOptions={BRAZILIAN_STATES}
         />
       ) : null}
     </div>
@@ -444,8 +485,18 @@ function PatientEditor({ existingIds, onCancel, onSave, patient, saving }) {
     detailId: patient?.detailId || null,
     name: patient?.name || '',
     cpf: patient?.cpf || '',
+    birthDate: patient?.birthDate || patient?.birth_date || '',
+    motherName: patient?.motherName || patient?.mother_name || '',
+    fatherName: patient?.fatherName || patient?.father_name || '',
+    ethnicity: patient?.ethnicity || '',
+    maritalStatus: patient?.maritalStatus || patient?.marital_status || '',
     phone: patient?.phone || '',
+    phoneSecondary: patient?.phoneSecondary || patient?.phone_secondary || '',
     email: patient?.email || '',
+    zipCode: patient?.zipCode || patient?.zip_code || '',
+    addressStreet: patient?.addressStreet || patient?.address_street || patient?.address || '',
+    addressNumber: patient?.addressNumber || patient?.address_number || '',
+    addressComplement: patient?.addressComplement || patient?.address_complement || '',
     city: patient?.city || '',
     state: patient?.state || '',
     insurance: patient?.insurance || '',
@@ -453,12 +504,14 @@ function PatientEditor({ existingIds, onCancel, onSave, patient, saving }) {
     age: patient?.age || '',
     condition: patient?.condition || '',
     birthday: patient?.birthday || '',
+    notesText: patient?.notesText || patient?.notes_text || '',
     vip: Boolean(patient?.vip),
     lastVisit: patient?.lastVisit || null,
     nextVisit: patient?.nextVisit || null,
     lastVisitIso: patient?.lastVisitIso || null,
   }))
   const [attachmentsOpen, setAttachmentsOpen] = useState(false)
+  const isNewPatient = !patient
 
   function handleChange(event) {
     const { checked, name, type, value } = event.target
@@ -472,6 +525,14 @@ function PatientEditor({ existingIds, onCancel, onSave, patient, saving }) {
       nextValue = maskPhone(value)
     }
 
+    if (name === 'phoneSecondary') {
+      nextValue = maskPhone(value)
+    }
+
+    if (name === 'zipCode') {
+      nextValue = maskCEP(value)
+    }
+
     setFormData((currentData) => ({ ...currentData, [name]: nextValue }))
   }
 
@@ -483,19 +544,46 @@ function PatientEditor({ existingIds, onCancel, onSave, patient, saving }) {
       return
     }
 
+    const requiredFields = [
+      ['cpf', 'CPF'],
+      ['age', 'idade'],
+      ['birthDate', 'data de nascimento'],
+      ['motherName', 'nome da mãe'],
+      ['email', 'email'],
+      ['phone', 'celular'],
+      ['zipCode', 'CEP'],
+      ['addressStreet', 'endereço'],
+      ['addressNumber', 'número'],
+      ['city', 'cidade'],
+      ['state', 'estado'],
+      ['plan', 'plano'],
+    ]
+    if (isNewPatient) {
+      const missingFields = requiredFields
+        .filter(([field]) => !String(formData[field] || '').trim())
+        .map(([, label]) => label)
+
+      if (missingFields.length) {
+        window.alert(`Preencha os campos obrigatórios: ${missingFields.join(', ')}.`)
+        return
+      }
+    }
+
     onSave({
       ...formData,
       id: formData.id || uniqueSlug(formData.name, existingIds),
       age: Number(formData.age) || 0,
-      birthday: formData.birthday || '07/04',
-      city: formData.city || 'Cidade nao informada',
-      document: formData.cpf ? `CPF ${formData.cpf}` : 'CPF nao informado',
-      insurance: formData.insurance || 'Particular',
-      lastVisit: formData.lastVisit || 'Ainda nao houve atendimento',
+      birthday: formData.birthday || formatBirthday(formData.birthDate),
+      city: formData.city,
+      document: formData.cpf ? `CPF ${formData.cpf}` : 'CPF não informado',
+      insurance: formData.insurance,
+      lastVisit: formData.lastVisit || 'Ainda não houve atendimento',
       nextVisit: formData.nextVisit || null,
-      phone: formData.phone || 'Telefone nao informado',
-      plan: formData.insurance || formData.plan || 'Particular',
-      state: formData.state || 'UF',
+      phone: formData.phone,
+      plan: formData.plan,
+      state: formData.state,
+      address: formatAddress(formData),
+      notes: formData.notesText ? [formData.notesText] : [],
     })
   }
 
@@ -512,7 +600,7 @@ function PatientEditor({ existingIds, onCancel, onSave, patient, saving }) {
           </button>
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-[#e5e5e5]">Paciente</h1>
-            <p className="mt-1 text-sm text-[#a3a3a3]">Gerencie as informacoes de seus pacientes</p>
+            <p className="mt-1 text-sm text-[#a3a3a3]">Gerencie as informações de seus pacientes</p>
           </div>
         </div>
       </div>
@@ -534,43 +622,43 @@ function PatientEditor({ existingIds, onCancel, onSave, patient, saving }) {
 
             <div className="grid grid-cols-1 gap-x-6 gap-y-6 md:grid-cols-12">
               <DarkField className="md:col-span-6" label="Nome *">
-                <input className={darkInput} name="name" onChange={handleChange} required value={formData.name} />
+                <input className={darkInput} name="name" onChange={handleChange} required={isNewPatient} value={formData.name} />
               </DarkField>
-              <DarkField className="md:col-span-3" label="CPF">
-                <input className={darkInput} maxLength={14} name="cpf" onChange={handleChange} value={formData.cpf} />
+              <DarkField className="md:col-span-3" label={requiredLabel('CPF')}>
+                <input className={darkInput} maxLength={14} name="cpf" onChange={handleChange} required={isNewPatient} value={formData.cpf} />
               </DarkField>
-              <DarkField className="md:col-span-3" label="Idade">
-                <input className={darkInput} min="0" name="age" onChange={handleChange} type="number" value={formData.age} />
+              <DarkField className="md:col-span-3" label={requiredLabel('Idade')}>
+                <input className={darkInput} min="0" name="age" onChange={handleChange} required={isNewPatient} type="number" value={formData.age} />
               </DarkField>
-              <DarkField className="md:col-span-3" label="Data de Nascimento">
-                <input className={`${darkInput} [color-scheme:dark]`} type="date" />
+              <DarkField className="md:col-span-3" label={requiredLabel('Data de Nascimento')}>
+                <input className={`${darkInput} [color-scheme:dark]`} name="birthDate" onChange={handleChange} required={isNewPatient} type="date" value={formData.birthDate} />
               </DarkField>
-              <DarkField className="md:col-span-3" label="Aniversario">
+              <DarkField className="md:col-span-3" label="Aniversário">
                 <input className={darkInput} maxLength={5} name="birthday" onChange={handleChange} placeholder="07/04" value={formData.birthday} />
               </DarkField>
               <DarkField className="md:col-span-3" label="Etnia">
-                <select className={darkInput} defaultValue="">
+                <select className={darkInput} name="ethnicity" onChange={handleChange} value={formData.ethnicity}>
                   <option value="">Selecione</option>
-                  <option>Indigena</option>
-                  <option>Nao Indigena</option>
+                  <option>Indígena</option>
+                  <option>Não Indígena</option>
                 </select>
               </DarkField>
               <DarkField className="md:col-span-3" label="Estado civil">
-                <select className={darkInput} defaultValue="">
+                <select className={darkInput} name="maritalStatus" onChange={handleChange} value={formData.maritalStatus}>
                   <option value="">Selecione</option>
                   <option>Solteiro(a)</option>
                   <option>Casado(a)</option>
                   <option>Divorciado(a)</option>
                 </select>
               </DarkField>
-              <DarkField className="md:col-span-6" label="Nome da mae">
-                <input className={darkInput} />
+              <DarkField className="md:col-span-6" label={requiredLabel('Nome da mãe')}>
+                <input className={darkInput} name="motherName" onChange={handleChange} required={isNewPatient} value={formData.motherName} />
               </DarkField>
               <DarkField className="md:col-span-6" label="Nome do pai">
-                <input className={darkInput} />
+                <input className={darkInput} name="fatherName" onChange={handleChange} value={formData.fatherName} />
               </DarkField>
               <DarkField className="md:col-span-12" label="Observacoes">
-                <textarea className={`${darkInput} min-h-24 py-2`} />
+                <textarea className={`${darkInput} min-h-24 py-2`} name="notesText" onChange={handleChange} value={formData.notesText} />
               </DarkField>
               <div className="md:col-span-12">
                 <button
@@ -592,56 +680,64 @@ function PatientEditor({ existingIds, onCancel, onSave, patient, saving }) {
           <section className={darkCard}>
             <h2 className="mb-6 text-lg font-semibold text-[#e5e5e5]">Contato</h2>
             <div className="grid grid-cols-1 gap-x-6 gap-y-6 md:grid-cols-12">
-              <DarkField className="md:col-span-4" label="E-mail">
-                <input className={darkInput} name="email" onChange={handleChange} type="email" value={formData.email} />
+              <DarkField className="md:col-span-4" label={requiredLabel('E-mail')}>
+                <input className={darkInput} name="email" onChange={handleChange} required={isNewPatient} type="email" value={formData.email} />
               </DarkField>
-              <DarkField className="md:col-span-4" label="Celular">
-                <input className={darkInput} maxLength={15} name="phone" onChange={handleChange} value={formData.phone} />
+              <DarkField className="md:col-span-4" label={requiredLabel('Celular')}>
+                <input className={darkInput} maxLength={15} name="phone" onChange={handleChange} required={isNewPatient} value={formData.phone} />
               </DarkField>
               <DarkField className="md:col-span-4" label="Telefone 2">
-                <input className={darkInput} />
+                <input className={darkInput} maxLength={15} name="phoneSecondary" onChange={handleChange} value={formData.phoneSecondary} />
               </DarkField>
             </div>
           </section>
 
           <section className={darkCard}>
-            <h2 className="mb-6 text-lg font-semibold text-[#e5e5e5]">Endereco</h2>
+            <h2 className="mb-6 text-lg font-semibold text-[#e5e5e5]">Endereço</h2>
             <div className="grid grid-cols-1 gap-x-6 gap-y-6 md:grid-cols-12">
-              <DarkField className="md:col-span-3" label="CEP">
-                <input className={darkInput} maxLength={9} onChange={maskCEPInput} placeholder="_____-___" />
+              <DarkField className="md:col-span-3" label={requiredLabel('CEP')}>
+                <input className={darkInput} maxLength={9} name="zipCode" onChange={handleChange} placeholder="_____-___" required={isNewPatient} value={formData.zipCode} />
               </DarkField>
-              <DarkField className="md:col-span-5" label="Endereco">
-                <input className={darkInput} />
+              <DarkField className="md:col-span-5" label={requiredLabel('Endereço')}>
+                <input className={darkInput} name="addressStreet" onChange={handleChange} required={isNewPatient} value={formData.addressStreet} />
               </DarkField>
-              <DarkField className="md:col-span-4" label="Cidade">
-                <input className={darkInput} name="city" onChange={handleChange} value={formData.city} />
+              <DarkField className="md:col-span-2" label={requiredLabel('Número')}>
+                <input className={darkInput} name="addressNumber" onChange={handleChange} required={isNewPatient} value={formData.addressNumber} />
               </DarkField>
-              <DarkField className="md:col-span-4" label="Estado">
-                <select className={darkInput} name="state" onChange={handleChange} value={formData.state}>
+              <DarkField className="md:col-span-6" label="Complemento">
+                <input className={darkInput} name="addressComplement" onChange={handleChange} value={formData.addressComplement} />
+              </DarkField>
+              <DarkField className="md:col-span-4" label={requiredLabel('Cidade')}>
+                <input className={darkInput} name="city" onChange={handleChange} required={isNewPatient} value={formData.city} />
+              </DarkField>
+              <DarkField className="md:col-span-4" label={requiredLabel('Estado')}>
+                <select className={darkInput} name="state" onChange={handleChange} required={isNewPatient} value={formData.state}>
                   <option value="">Selecione</option>
-                  <option value="PE">Pernambuco</option>
-                  <option value="SE">Sergipe</option>
-                  <option value="SP">Sao Paulo</option>
-                  <option value="RJ">Rio de Janeiro</option>
+                  {BRAZILIAN_STATES.map((stateOption) => (
+                    <option key={stateOption.value} value={stateOption.value}>
+                      {stateOption.label}
+                    </option>
+                  ))}
                 </select>
               </DarkField>
             </div>
           </section>
 
           <section className={darkCard}>
-            <h2 className="mb-6 text-lg font-semibold text-[#e5e5e5]">Informacoes de convenio</h2>
+            <h2 className="mb-6 text-lg font-semibold text-[#e5e5e5]">Informações de convenio</h2>
             <div className="grid grid-cols-1 gap-x-6 gap-y-6 md:grid-cols-12">
-              <DarkField className="md:col-span-6" label="Convenio">
+              <DarkField className="md:col-span-6" label="Convênio">
                 <select className={darkInput} name="insurance" onChange={handleChange} value={formData.insurance}>
                   <option value="">Selecione</option>
-                  <option value="Unimed">Unimed</option>
-                  <option value="Bradesco Saude">Bradesco Saude</option>
-                  <option value="Amil">Amil</option>
-                  <option value="Particular">Particular</option>
+                  {INSURANCE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
                 </select>
               </DarkField>
-              <DarkField className="md:col-span-6" label="Plano">
-                <input className={darkInput} name="plan" onChange={handleChange} value={formData.plan} />
+              <DarkField className="md:col-span-6" label={requiredLabel('Plano')}>
+                <input className={darkInput} name="plan" onChange={handleChange} required={isNewPatient} value={formData.plan} />
               </DarkField>
               <label className="flex w-fit cursor-pointer items-center gap-2 text-sm text-[#e5e5e5] md:col-span-12">
                 <input className="size-4 accent-[#3b82f6]" checked={formData.vip} name="vip" onChange={handleChange} type="checkbox" />
@@ -672,8 +768,57 @@ function PatientEditor({ existingIds, onCancel, onSave, patient, saving }) {
   )
 }
 
-export function PatientDetailPage({ navigate, patient }) {
+export function PatientDetailPage({ navigate, patient, role }) {
   const [activeTab, setActiveTab] = useState('resumo')
+  const [localPatient, setLocalPatient] = useState(patient)
+  const [editing, setEditing] = useState(false)
+  const [messageShortcutOpen, setMessageShortcutOpen] = useState(false)
+  const [appointmentShortcutOpen, setAppointmentShortcutOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const canEditPatients = hasCapability(role, 'canEditPatients')
+  const canHardDeletePatients = hasCapability(role, 'hardDeletePatients')
+
+  async function savePatient(updatedPatient) {
+    if (!canEditPatients) return
+
+    setSaving(true)
+    try {
+      await patientRepository.update(updatedPatient.id, updatedPatient)
+      setLocalPatient((current) => ({ ...current, ...updatedPatient }))
+      setEditing(false)
+    } catch (err) {
+      window.alert(`Erro ao salvar paciente: ${err.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function deletePatient() {
+    if (!canHardDeletePatients) return
+
+    if (!window.confirm('Tem certeza que deseja excluir este paciente definitivamente? Esta ação não poderá ser desfeita.')) {
+      return
+    }
+
+    try {
+      await patientRepository.remove(localPatient.id)
+      navigate('/pacientes')
+    } catch (err) {
+      window.alert(`Erro ao excluir paciente: ${err.message}`)
+    }
+  }
+
+  if (editing) {
+    return (
+      <PatientEditor
+        existingIds={[localPatient.id]}
+        onCancel={() => setEditing(false)}
+        onSave={savePatient}
+        patient={localPatient}
+        saving={saving}
+      />
+    )
+  }
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -688,24 +833,33 @@ export function PatientDetailPage({ navigate, patient }) {
           </button>
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#3b82f6]">Dados do Paciente</p>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight text-[#f5f5f5]">{patient.name}</h1>
+            <h1 className="mt-1 text-2xl font-bold tracking-tight text-[#f5f5f5]">{localPatient.name}</h1>
             <p className="mt-1 text-sm text-[#b8b8b8]">
-              {patient.condition} • {patient.status} • {patient.document}
+              {localPatient.condition} • {localPatient.status} • {localPatient.document}
             </p>
           </div>
         </div>
 
         <div className="flex flex-wrap gap-3">
+          {canEditPatients ? (
+            <button
+              className="h-10 rounded-sm border border-[#404040] bg-[#262626] px-4 text-sm font-semibold text-[#e5e5e5] transition hover:bg-[#303030]"
+              onClick={() => setEditing(true)}
+              type="button"
+            >
+              Editar dados
+            </button>
+          ) : null}
           <button
             className="h-10 rounded-sm border border-[#404040] bg-[#262626] px-4 text-sm font-semibold text-[#e5e5e5] transition hover:bg-[#303030]"
-            onClick={() => navigate('/camunicacao')}
+            onClick={() => setMessageShortcutOpen(true)}
             type="button"
           >
             Enviar mensagem
           </button>
           <button
             className="h-10 rounded-sm bg-[#3b82f6] px-4 text-sm font-semibold text-white transition hover:bg-[#2563eb]"
-            onClick={() => navigate('/agenda')}
+            onClick={() => setAppointmentShortcutOpen(true)}
             type="button"
           >
             Novo retorno
@@ -714,10 +868,10 @@ export function PatientDetailPage({ navigate, patient }) {
       </header>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SummaryTile label="Idade" value={`${patient.age} anos`} />
-        <SummaryTile label="Risco" value={patient.risk} tone={riskColor(patient.risk)} />
-        <SummaryTile label="Última consulta" value={patient.lastVisit} />
-        <SummaryTile label="Próxima consulta" value={patient.nextVisit} />
+        <SummaryTile label="Idade" value={localPatient.age ? `${localPatient.age} anos` : missingValue('Idade')} />
+        <SummaryTile label="Risco" value={localPatient.risk || missingValue('Risco')} tone={localPatient.risk ? riskColor(localPatient.risk) : null} />
+        <SummaryTile label="Última consulta" value={localPatient.lastVisit || 'Ainda não houve atendimento'} />
+        <SummaryTile label="Próxima consulta" value={localPatient.nextVisit || 'Nenhum atendimento agendado'} />
       </section>
 
       <section className={darkCard}>
@@ -739,38 +893,215 @@ export function PatientDetailPage({ navigate, patient }) {
         </div>
 
         <div className="mt-6">
-          {activeTab === 'resumo' ? <PatientSummary patient={patient} /> : null}
-          {activeTab === 'consultas' ? <PatientVisits navigate={navigate} patient={patient} /> : null}
-          {activeTab === 'documentos' ? <PatientDocuments patient={patient} /> : null}
+          {activeTab === 'resumo' ? <PatientSummary patient={localPatient} /> : null}
+          {activeTab === 'consultas' ? <PatientVisits navigate={navigate} patient={localPatient} /> : null}
+          {activeTab === 'documentos' ? <PatientDocuments patient={localPatient} /> : null}
         </div>
       </section>
+
+      {canHardDeletePatients ? (
+        <div className="flex justify-end">
+          <button
+            className="h-10 rounded-sm border border-red-700 bg-red-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500/40"
+            onClick={deletePatient}
+            type="button"
+          >
+            Excluir paciente
+          </button>
+        </div>
+      ) : null}
+
+      {messageShortcutOpen ? (
+        <PatientMessageShortcutModal
+          onClose={() => setMessageShortcutOpen(false)}
+          patient={localPatient}
+        />
+      ) : null}
+
+      {appointmentShortcutOpen ? (
+        <PatientAppointmentShortcutModal
+          onClose={() => setAppointmentShortcutOpen(false)}
+          patient={localPatient}
+        />
+      ) : null}
     </div>
   )
 }
 
 function PatientSummary({ patient }) {
+  const notes = Array.isArray(patient.notes) ? patient.notes : []
+
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-      <div>
+    <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+      <div className="space-y-6">
         <h2 className="text-xl font-bold text-[#f5f5f5]">Resumo clínico</h2>
-        <div className="mt-4 grid gap-3">
-          {patient.notes.map((note) => (
+        <div className="grid gap-3">
+          {notes.length ? notes.map((note) => (
             <p className="rounded-xl border border-[#404040] bg-[#171717] p-4 text-sm leading-6 text-[#b8b8b8]" key={note}>
               {note}
             </p>
-          ))}
+          )) : (
+            <p className="rounded-xl border border-[#404040] bg-[#171717] p-4 text-sm leading-6 text-[#b8b8b8]">
+              Nenhuma observação clínica registrada.
+            </p>
+          )}
         </div>
+        <PatientInfoSection
+          items={[
+            ['CPF', patient.cpf || patient.document],
+            ['Data de nascimento', formatDisplayDate(patient.birthDate || patient.birth_date)],
+            ['Nome da mãe', patient.motherName],
+            ['Nome do pai', patient.fatherName],
+            ['Etnia', patient.ethnicity],
+            ['Estado civil', patient.maritalStatus],
+          ]}
+          title="Dados pessoais"
+        />
+        <PatientInfoSection
+          items={[
+            ['CEP', patient.zipCode],
+            ['Endereço', patient.addressStreet],
+            ['Número', patient.addressNumber],
+            ['Complemento', patient.addressComplement],
+            ['Cidade', patient.city],
+            ['Estado', patient.state],
+          ]}
+          title="Endereço"
+        />
+        <PatientInfoSection
+          items={[
+            ['Convênio', patient.insurance],
+            ['Plano', patient.plan],
+            ['VIP', patient.vip ? 'Sim' : 'Não'],
+          ]}
+          title="Informações de convênio"
+        />
       </div>
       <div className="rounded-xl border border-[#404040] bg-[#171717] p-4">
         <h3 className="font-bold text-[#f5f5f5]">Contato e equipe</h3>
         <dl className="mt-4 grid gap-3 text-sm">
           <InfoRow label="Telefone" value={patient.phone} />
+          <InfoRow label="Telefone 2" value={patient.phoneSecondary} />
           <InfoRow label="E-mail" value={patient.email} />
           <InfoRow label="Endereço" value={patient.address} />
-          <InfoRow label="Equipe" value={patient.team.join(', ')} />
+          <InfoRow label="Equipe" value={(patient.team || []).join(', ')} />
         </dl>
       </div>
     </div>
+  )
+}
+
+function PatientMessageShortcutModal({ onClose, patient }) {
+  const [message, setMessage] = useState('')
+  const [channel, setChannel] = useState('whatsapp')
+
+  function handleSubmit(event) {
+    event.preventDefault()
+    onClose()
+  }
+
+  return (
+    <ShortcutModal onClose={onClose} title="Nova mensagem">
+      <form className="space-y-4" onSubmit={handleSubmit}>
+        <DarkField label="Paciente">
+          <input className={darkInput} readOnly value={patient.name || ''} />
+        </DarkField>
+        <DarkField label="Canal">
+          <select className={darkInput} onChange={(event) => setChannel(event.target.value)} value={channel}>
+            <option value="whatsapp">WhatsApp</option>
+            <option value="sms">SMS</option>
+            <option value="email">E-mail</option>
+          </select>
+        </DarkField>
+        <DarkField label="Mensagem">
+          <textarea
+            className={`${darkInput} min-h-28 py-2`}
+            onChange={(event) => setMessage(event.target.value)}
+            value={message}
+          />
+        </DarkField>
+        <ShortcutActions disabled={!message.trim()} onClose={onClose} submitLabel="Enviar" />
+      </form>
+    </ShortcutModal>
+  )
+}
+
+function PatientAppointmentShortcutModal({ onClose, patient }) {
+  const [date, setDate] = useState('')
+  const [time, setTime] = useState('')
+  const [type, setType] = useState('Retorno')
+
+  function handleSubmit(event) {
+    event.preventDefault()
+    onClose()
+  }
+
+  return (
+    <ShortcutModal onClose={onClose} title="Novo agendamento">
+      <form className="space-y-4" onSubmit={handleSubmit}>
+        <DarkField label="Paciente">
+          <input className={darkInput} readOnly value={patient.name || ''} />
+        </DarkField>
+        <div className="grid gap-4 md:grid-cols-2">
+          <DarkField label="Data">
+            <input className={`${darkInput} [color-scheme:dark]`} onChange={(event) => setDate(event.target.value)} type="date" value={date} />
+          </DarkField>
+          <DarkField label="Horário">
+            <input className={`${darkInput} [color-scheme:dark]`} onChange={(event) => setTime(event.target.value)} type="time" value={time} />
+          </DarkField>
+        </div>
+        <DarkField label="Tipo">
+          <input className={darkInput} onChange={(event) => setType(event.target.value)} value={type} />
+        </DarkField>
+        <ShortcutActions disabled={!date || !time} onClose={onClose} submitLabel="Salvar" />
+      </form>
+    </ShortcutModal>
+  )
+}
+
+function ShortcutModal({ children, onClose, title }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+      <div className="w-full max-w-xl rounded-2xl border border-[#404040] bg-[#262626] shadow-2xl">
+        <div className="flex items-center justify-between border-b border-[#404040] px-5 py-4">
+          <h2 className="text-lg font-bold text-[#f5f5f5]">{title}</h2>
+          <button className="grid size-9 place-items-center rounded-sm text-[#a3a3a3] hover:bg-[#303030]" onClick={onClose} type="button">
+            <PatientIcon className="size-5" name="x" />
+          </button>
+        </div>
+        <div className="p-5">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+function ShortcutActions({ disabled, onClose, submitLabel }) {
+  return (
+    <div className="flex justify-end gap-3 border-t border-[#404040] pt-4">
+      <button className="h-10 rounded-sm border border-[#404040] px-4 text-sm font-semibold text-[#e5e5e5]" onClick={onClose} type="button">
+        Cancelar
+      </button>
+      <button
+        className="h-10 rounded-sm bg-[#3b82f6] px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+        disabled={disabled}
+        type="submit"
+      >
+        {submitLabel}
+      </button>
+    </div>
+  )
+}
+
+function PatientInfoSection({ items, title }) {
+  return (
+    <section className="rounded-xl border border-[#404040] bg-[#171717] p-4">
+      <h3 className="font-bold text-[#f5f5f5]">{title}</h3>
+      <dl className="mt-4 grid gap-3 text-sm md:grid-cols-2">
+        {items.map(([label, value]) => (
+          <InfoRow key={label} label={label} value={value || 'Não informado'} />
+        ))}
+      </dl>
+    </section>
   )
 }
 
@@ -778,9 +1109,13 @@ function PatientVisits({ navigate, patient }) {
   return (
     <div className="grid gap-3">
       {[
-        { date: patient.nextVisit, status: 'Agendada', description: `Retorno para ${patient.condition}` },
-        { date: patient.lastVisit, status: 'Finalizada', description: 'Consulta registrada no historico do paciente.' },
-      ].map((visit) => (
+        patient.nextVisit
+          ? { date: patient.nextVisit, status: 'Agendada', description: `Retorno para ${patient.condition}` }
+          : null,
+        patient.lastVisit
+          ? { date: patient.lastVisit, status: 'Finalizada', description: 'Consulta registrada no histórico do paciente.' }
+          : null,
+      ].filter(Boolean).map((visit) => (
         <div className="rounded-xl border border-[#404040] bg-[#171717] p-4" key={`${visit.date}-${visit.status}`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -797,6 +1132,11 @@ function PatientVisits({ navigate, patient }) {
           </div>
         </div>
       ))}
+      {!patient.nextVisit && !patient.lastVisit ? (
+        <div className="rounded-xl border border-[#404040] bg-[#171717] p-4 text-sm text-[#a3a3a3]">
+          Nenhum agendamento encontrado para este paciente.
+        </div>
+      ) : null}
       <button
         className="h-10 justify-self-start rounded-sm border border-[#404040] bg-[#303030] px-4 text-sm font-semibold text-[#e5e5e5] transition hover:border-[#3b82f6]"
         onClick={() => navigate('/consultas')}
@@ -809,9 +1149,11 @@ function PatientVisits({ navigate, patient }) {
 }
 
 function PatientDocuments({ patient }) {
+  const exams = Array.isArray(patient.exams) ? patient.exams : []
+
   return (
     <div className="grid gap-3 md:grid-cols-3">
-      {patient.exams.map((exam) => (
+      {exams.length ? exams.map((exam) => (
         <div className="rounded-xl border border-[#404040] bg-[#171717] p-4" key={exam}>
           <p className="font-semibold text-[#f5f5f5]">{exam}</p>
           <p className="mt-2 text-sm text-[#a3a3a3]">Pendente de revisão.</p>
@@ -819,7 +1161,11 @@ function PatientDocuments({ patient }) {
             A revisar
           </span>
         </div>
-      ))}
+      )) : (
+        <div className="rounded-xl border border-[#404040] bg-[#171717] p-4 text-sm text-[#a3a3a3]">
+          Nenhum documento encontrado.
+        </div>
+      )}
     </div>
   )
 }
@@ -843,9 +1189,19 @@ function InfoRow({ label, value }) {
   return (
     <div>
       <dt className="font-semibold text-[#737373]">{label}</dt>
-      <dd className="mt-1 text-[#e5e5e5]">{value}</dd>
+      <dd className="mt-1 text-[#e5e5e5]">{value || missingValue(label)}</dd>
     </div>
   )
+}
+
+function missingValue(label) {
+  return `${label} não informado`
+}
+
+function formatDisplayDate(value) {
+  if (!value) return ''
+  const [year, month, day] = String(value).split('-')
+  return year && month && day ? `${day}/${month}/${year}` : value
 }
 
 function riskColor(risk) {
@@ -858,6 +1214,32 @@ function riskColor(risk) {
   }
 
   return 'bg-emerald-500/20 text-emerald-400'
+}
+
+function normalizeFilterValue(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+}
+
+function getPatientBirthday(patient) {
+  if (patient.birthday) return patient.birthday
+  const birthDate = patient.birthDate || patient.birth_date
+  if (!birthDate) return ''
+
+  const [, month, day] = String(birthDate).split('-')
+  return month && day ? `${day}/${month}` : ''
+}
+
+function getTodayBirthday() {
+  const today = new Date()
+  return `${String(today.getDate()).padStart(2, '0')}/${getCurrentMonth()}`
+}
+
+function getCurrentMonth() {
+  return String(new Date().getMonth() + 1).padStart(2, '0')
 }
 
 function PatientSelect({ className = '', icon, label, onChange, options, value }) {
@@ -910,8 +1292,8 @@ function PageButton({ children, disabled, onClick }) {
 function ActionItem({ danger = false, icon, label, onClick }) {
   return (
     <button
-      className={`flex w-full items-center gap-2 px-4 py-2 text-sm transition ${
-        danger ? 'text-[#ef4444] hover:bg-[#ef4444]/10' : 'text-[#e5e5e5] hover:bg-[#333333]'
+      className={`flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm font-medium transition ${
+        danger ? 'text-[#f87171] hover:bg-[#303030]' : 'text-[#e5e5e5] hover:bg-[#303030]'
       }`}
       onClick={onClick}
       type="button"
@@ -919,6 +1301,14 @@ function ActionItem({ danger = false, icon, label, onClick }) {
       <PatientIcon className="size-4" name={icon} />
       {label}
     </button>
+  )
+}
+
+function requiredLabel(label) {
+  return (
+    <>
+      {label} <span className="text-red-400">*</span>
+    </>
   )
 }
 
@@ -984,8 +1374,8 @@ function AdvancedFilterModal({
               <select className={darkInput} onChange={(event) => setState(event.target.value)} value={state}>
                 <option value="">Todos</option>
                 {stateOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
+                  <option key={option.value} value={option.value}>
+                    {option.label}
                   </option>
                 ))}
               </select>
@@ -997,7 +1387,6 @@ function AdvancedFilterModal({
                 className={darkInput}
                 min="0"
                 onChange={(event) => setAgeMin(event.target.value)}
-                placeholder="0"
                 type="number"
                 value={ageMin}
               />
@@ -1007,7 +1396,6 @@ function AdvancedFilterModal({
                 className={darkInput}
                 min="0"
                 onChange={(event) => setAgeMax(event.target.value)}
-                placeholder="120"
                 type="number"
                 value={ageMax}
               />
@@ -1110,7 +1498,9 @@ function PatientIcon({ className = 'size-4', name }) {
   if (name === 'more') {
     return (
       <svg {...common}>
-        <path d="M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2ZM19 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2ZM5 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" />
+        <circle cx="5" cy="12" fill="currentColor" r="1.5" stroke="none" />
+        <circle cx="12" cy="12" fill="currentColor" r="1.5" stroke="none" />
+        <circle cx="19" cy="12" fill="currentColor" r="1.5" stroke="none" />
       </svg>
     )
   }
@@ -1232,6 +1622,11 @@ async function buildPatientRows() {
   return patientRepository.getDirectoryRows()
 }
 
+function normalizeCreatedPatient(payload) {
+  if (Array.isArray(payload)) return payload[0] || null
+  return payload?.patient || payload?.data || payload?.created || payload || null
+}
+
 function uniqueSlug(value, existingIds) {
   const base = slugify(value) || `paciente-${Date.now()}`
   let nextId = base
@@ -1271,9 +1666,28 @@ function maskPhone(value) {
     .replace(/(-\d{4})\d+?$/, '$1')
 }
 
-function maskCEPInput(event) {
-  event.target.value = event.target.value
+function maskCEP(value) {
+  return value
     .replace(/\D/g, '')
     .replace(/(\d{5})(\d)/, '$1-$2')
     .replace(/(-\d{3})\d+?$/, '$1')
+}
+
+function formatBirthday(birthDate) {
+  if (!birthDate) return ''
+  const [, month, day] = birthDate.split('-')
+  return day && month ? `${day}/${month}` : ''
+}
+
+function formatAddress(patient) {
+  return [
+    patient.addressStreet,
+    patient.addressNumber,
+    patient.addressComplement,
+    patient.city,
+    patient.state,
+    patient.zipCode,
+  ]
+    .filter(Boolean)
+    .join(', ')
 }

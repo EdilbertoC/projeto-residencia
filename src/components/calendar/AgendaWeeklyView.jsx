@@ -26,8 +26,8 @@ export function AgendaWeeklyView({ baseDate, appointments, onAppointmentClick })
   )
 
   return (
-    <div className="rounded-2xl border border-[#404040] bg-[#262626] p-5">
-      <div className="grid grid-cols-7 gap-4 border-b border-[#404040] pb-4">
+    <div className="agenda-calendar-shell rounded-2xl border border-[#404040] bg-[#262626] p-5">
+      <div className="agenda-calendar-header grid grid-cols-7 gap-4 border-b border-[#404040] pb-4">
         {days.map((day) => {
           const isWeekend = day.getDay() === 0
 
@@ -60,7 +60,7 @@ export function AgendaWeeklyView({ baseDate, appointments, onAppointmentClick })
           return (
             <div
               key={day.toISOString()}
-              className="flex h-full flex-col gap-2 rounded-lg border border-[#404040]/50 bg-[#1f1f1f] p-2"
+              className="agenda-week-day flex h-full min-w-0 flex-col gap-2 rounded-lg border border-[#404040]/50 bg-[#1f1f1f] p-2"
             >
               {dayAppointments.length === 0 ? (
                 <div className="flex h-full items-center justify-center p-4">
@@ -71,21 +71,21 @@ export function AgendaWeeklyView({ baseDate, appointments, onAppointmentClick })
                   <button
                     key={appointment.id}
                     onClick={() => onAppointmentClick && onAppointmentClick(appointment)}
-                    className={`flex w-full flex-col items-start rounded-md border p-2 text-left shadow-sm transition hover:brightness-110 ${getStatusColors(appointment.status)}`}
+                    className={`agenda-event ${getStatusToneClass(appointment.status)} flex w-full min-w-0 flex-col items-start overflow-hidden rounded-md border p-2 text-left shadow-sm transition hover:brightness-110 ${getStatusColors(appointment.status)}`}
                   >
-                    <div className="mb-1 flex items-center gap-2">
-                      <span className="rounded bg-black/20 px-1.5 py-0.5 text-xs font-bold leading-none">
+                    <div className="mb-1 flex w-full min-w-0 items-center gap-1.5 overflow-hidden">
+                      <span className="shrink-0 rounded bg-black/20 px-1.5 py-0.5 text-[10px] font-bold leading-none">
                         {appointment.time}
                       </span>
-                      <span className="truncate text-[10px] font-semibold uppercase tracking-wider opacity-80">
+                      <span className="min-w-0 flex-1 truncate text-[9px] font-semibold uppercase tracking-normal opacity-80">
                         {appointment.mode}
                       </span>
                     </div>
-                    <span className="w-full truncate text-xs font-bold leading-tight" title={appointment.patient}>
+                    <span className="block w-full min-w-0 truncate text-xs font-bold leading-tight" title={appointment.patient}>
                       {appointment.patient}
                     </span>
                     <span
-                      className="mt-0.5 w-full truncate text-[10px] font-medium opacity-80"
+                      className="mt-0.5 block w-full min-w-0 truncate text-[10px] font-medium opacity-80"
                       title={appointment.professional}
                     >
                       Dr(a). {appointment.professional?.split(' ')[0]}
@@ -99,6 +99,25 @@ export function AgendaWeeklyView({ baseDate, appointments, onAppointmentClick })
       </div>
     </div>
   )
+}
+
+function getStatusToneClass(status) {
+  switch (status) {
+    case 'Confirmada':
+      return 'agenda-event-confirmed'
+    case 'Em triagem':
+      return 'agenda-event-triage'
+    case 'Concluida':
+    case 'Concluída':
+      return 'agenda-event-finished'
+    case 'Cancelada':
+      return 'agenda-event-cancelled'
+    case 'Bloqueado':
+      return 'agenda-event-blocked'
+    case 'Aguardando':
+    default:
+      return 'agenda-event-waiting'
+  }
 }
 
 function getStatusColors(status) {

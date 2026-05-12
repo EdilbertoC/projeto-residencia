@@ -34,7 +34,7 @@ export function AnalyticsPage() {
 
       <section className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#f5f5f5]">Relatórios & Analytics</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-[#f5f5f5]">Analytics</h1>
           <p className="mt-1 text-sm text-[#b8b8b8]">Dashboard executivo com métricas de desempenho</p>
         </div>
 
@@ -70,7 +70,7 @@ export function AnalyticsPage() {
         </ChartCard>
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-3" aria-label="Relatórios complementares">
+      <section className="grid gap-6 lg:grid-cols-3" aria-label="Analytics complementares">
         <ChartCard description="Evolução de receita" title="Faturamento Mensal">
           <RevenueChart data={revenueData} />
         </ChartCard>

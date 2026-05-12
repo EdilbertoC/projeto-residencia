@@ -8,6 +8,7 @@ import {
   hasAuthenticatedSession,
   saveAuthSession,
 } from '../config/api.js'
+import { getResponseError } from './repositoryUtils.js'
 
 export const authRepository = {
   async login({ email, password }) {
@@ -18,12 +19,12 @@ export const authRepository = {
     })
 
     if (!response.ok) {
-      throw new Error(await getResponseError(response, 'Erro de autenticacao.'))
+      throw new Error(await getResponseError(response, 'Erro de autenticação.'))
     }
 
     const session = await response.json()
     if (!session?.access_token) {
-      throw new Error('Falha no login. Token nao recebido.')
+      throw new Error('Falha no login. Token não recebido.')
     }
 
     saveAuthSession(session)
@@ -32,7 +33,7 @@ export const authRepository = {
 
   async requestPasswordReset(email) {
     const payload = { email: email?.trim() }
-    const apiResponse = await fetch(apiEndpoint('/solicitar-reset-de-senha'), {
+    const apiResponse = await fetch(apiEndpoint('/request-password-reset'), {
       method: 'POST',
       headers: getAnonHeaders(),
       body: JSON.stringify(payload),
@@ -59,25 +60,32 @@ export const authRepository = {
     return true
   },
 
+  async sendMagicLink(email) {
+    const response = await fetch(`${apiConfig.supabaseUrl}/auth/v1/otp`, {
+      method: 'POST',
+      headers: getAnonHeaders(),
+      body: JSON.stringify({ email: email?.trim() }),
+    })
+
+    if (!response.ok) {
+      throw new Error(await getResponseError(response, 'Erro ao enviar Magic Link.'))
+    }
+
+    return true
+  },
+
   async getUser() {
-    const apiEndpoints = [
-      apiEndpoint('/user-info'),
-      apiEndpoint('/informacoes-do-usuario-autenticado'),
-    ]
+    const apiResponse = await fetch(`${apiConfig.functionsUrl.replace(/\/+$/, '')}/user-info`, {
+      method: 'POST',
+      headers: getAuthenticatedHeaders(),
+    }).catch(() => null)
 
-    for (const url of apiEndpoints) {
-      const apiResponse = await fetch(url, {
-        method: 'GET',
-        headers: getAuthenticatedHeaders(),
-      }).catch(() => null)
+    if (apiResponse?.ok) {
+      return apiResponse.json()
+    }
 
-      if (apiResponse?.ok) {
-        return apiResponse.json()
-      }
-
-      if (apiResponse && !shouldFallback(apiResponse)) {
-        throw new Error(await getResponseError(apiResponse, 'Erro ao resgatar perfil de usuario.'))
-      }
+    if (apiResponse && !shouldFallback(apiResponse)) {
+      throw new Error(await getResponseError(apiResponse, 'Erro ao resgatar perfil de usuário.'))
     }
 
     const response = await fetch(`${apiConfig.supabaseUrl}/auth/v1/user`, {
@@ -86,7 +94,7 @@ export const authRepository = {
     })
 
     if (!response.ok) {
-      throw new Error(await getResponseError(response, 'Erro ao resgatar perfil de usuario.'))
+      throw new Error(await getResponseError(response, 'Erro ao resgatar perfil de usuário.'))
     }
 
     return response.json()
@@ -114,7 +122,7 @@ export const authRepository = {
         headers: getAuthenticatedHeaders(),
       })
     } catch {
-      // A sessao local precisa ser removida mesmo quando o backend nao responde.
+      // A sessão local precisa ser removida mesmo quando o backend não responde.
     } finally {
       clearAuthSession()
     }
@@ -123,9 +131,4 @@ export const authRepository = {
 
 function shouldFallback(response) {
   return [404, 405].includes(response.status)
-}
-
-async function getResponseError(response, fallbackMessage) {
-  const error = await response.json().catch(() => ({}))
-  return error.error_description || error.msg || error.message || error.error || fallbackMessage
 }
