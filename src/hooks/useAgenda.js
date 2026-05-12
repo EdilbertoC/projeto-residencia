@@ -355,6 +355,8 @@ export function useAgenda() {
       notes: form.notes,
       room: form.mode === 'Teleconsulta' ? 'Virtual' : 'Consultório 1',
       professionalId: targetProfessionalId,
+      createdBy: editingAppointment?.createdBy || viewerProfile?.id || '',
+      createdByName: editingAppointment?.createdByName || viewerProfile?.name || viewerProfile?.email || '',
       ...overrides,
     }
   }
@@ -421,6 +423,8 @@ function enrichAppointment(appointment, payload, patients, professionals) {
     status: payload.status,
     notes: payload.notes,
     room: payload.room,
+    createdBy: appointment.createdBy || payload.createdBy,
+    createdByName: appointment.createdByName || payload.createdByName,
   }
 }
 

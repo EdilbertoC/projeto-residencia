@@ -10,11 +10,10 @@ export const patientRepository = {
   },
 
   async getById(patientId) {
-    const [patients, appointments] = await Promise.all([
-      this.getAll(),
+    const [patient, appointments] = await Promise.all([
+      getPatientById(patientId),
       getAppointments().catch(() => []),
     ])
-    const patient = patients.find((p) => String(p.id) === String(patientId)) || null
     return patient ? mapPatientToDetail(patient, appointments) : null
   },
 
@@ -126,6 +125,35 @@ export const patientRepository = {
     return response.json()
   },
 
+  async uploadAvatar(patientId, file) {
+    if (!patientId) {
+      throw new Error('Não foi possível identificar o paciente para enviar o avatar.')
+    }
+
+    const extension = file.name?.split('.').pop() || 'jpg'
+    const objectPath = `patients/${patientId}/avatar.${extension}`
+    const avatarUrl = `${apiConfig.storageUrl}/object/avatars/${objectPath}`
+    const response = await fetch(avatarUrl, {
+      method: 'POST',
+      headers: getAuthenticatedHeaders({
+        'Content-Type': file.type || 'application/octet-stream',
+        'x-upsert': 'true',
+      }),
+      body: file,
+    })
+
+    if (!response.ok) {
+      throw new Error(await getResponseError(response, 'Falha ao enviar avatar do paciente.'))
+    }
+
+    await updatePatientAvatarUrl(patientId, avatarUrl).catch(() => null)
+
+    return {
+      avatarUrl,
+      path: objectPath,
+    }
+  },
+
   // 5. Deletar paciente
   async remove(patientId) {
     const response = await fetch(`${apiConfig.restUrl}/patients?id=eq.${patientId}`, {
@@ -138,6 +166,20 @@ export const patientRepository = {
   },
 }
 
+async function getPatientById(patientId) {
+  const query = new URLSearchParams({
+    select: '*',
+    id: `eq.${patientId}`,
+    limit: '1',
+  })
+
+  const response = await fetch(`${apiConfig.restUrl}/patients?${query.toString()}`, { headers: getAuthenticatedHeaders() })
+  if (!response.ok) throw new Error(await getResponseError(response, 'Erro ao buscar paciente.'))
+
+  const data = await response.json()
+  return Array.isArray(data) ? data[0] || null : data
+}
+
 function mapPatientToDirectory(patient, appointments = []) {
   const appointmentSummary = summarizeAppointments(patient.id, appointments)
   const city = getFirstValue(patient, ['city', 'cidade', 'address_city', 'municipio'], patient.address?.city)
@@ -148,6 +190,7 @@ function mapPatientToDirectory(patient, appointments = []) {
     ...patient,
     name: patient.name || patient.full_name || patient.nome || 'Paciente',
     phone: patient.phone || patient.phone_mobile || patient.telefone || '',
+    avatarUrl: normalizeAvatarUrl(patient.avatarUrl || patient.avatar_url || patient.avatar_path),
     detailId: patient.id,
     insurance: normalizeInsurance(insurance),
     city,
@@ -183,6 +226,7 @@ function mapPatientToDetail(patient, appointments = []) {
     status: patient.status || 'Acompanhamento',
     risk: patient.risk || patient.risco || 'Baixo',
     email: patient.email || '',
+    avatarUrl: directory.avatarUrl,
     address: formatAddress(directory) || patient.address || patient.endereco || 'Endereço não informado',
     team: patient.team || patient.equipe || [],
     notes: normalizeNotes(patient.notes || patient.observacoes || directory.notesText),
@@ -330,6 +374,25 @@ function normalizeInsurance(value) {
   const normalized = String(value || '').trim()
   if (normalized.toLowerCase() === 'bradesco saude') return 'Bradesco Saúde'
   return normalized
+}
+
+function normalizeAvatarUrl(value) {
+  const avatar = String(value || '').trim()
+  if (!avatar) return ''
+  if (/^https?:\/\//i.test(avatar)) return avatar
+  return `${apiConfig.storageUrl}/object/avatars/${avatar.replace(/^\/+/, '')}`
+}
+
+async function updatePatientAvatarUrl(patientId, avatarUrl) {
+  const response = await fetch(`${apiConfig.restUrl}/patients?id=eq.${patientId}`, {
+    method: 'PATCH',
+    headers: getAuthenticatedHeaders({ Prefer: 'return=minimal' }),
+    body: JSON.stringify({ avatar_url: avatarUrl }),
+  })
+
+  if (!response.ok) {
+    throw new Error(await getResponseError(response, 'Falha ao salvar avatar do paciente.'))
+  }
 }
 
 function calculateAge(birthDate) {

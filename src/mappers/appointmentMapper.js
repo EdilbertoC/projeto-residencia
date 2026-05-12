@@ -68,6 +68,14 @@ export const appointmentMapper = {
       status: mappedStatus,
       notes: apiData.notes || apiData.observations || apiData.observacoes || apiData.observacao || apiData.description || '',
       room: apiData.room || apiData.sala || apiData.local || 'Consultório 1',
+      createdBy: apiData.createdBy || apiData.created_by || '',
+      createdByName:
+        apiData.createdByName ||
+        apiData.created_by_name ||
+        apiData.created_by_profile?.full_name ||
+        apiData.created_by_profile?.name ||
+        apiData.created_by_profile?.email ||
+        '',
     }
   },
 
@@ -85,6 +93,7 @@ export const appointmentMapper = {
         notes: emptyToUndefined(uiData.notes),
         observations: emptyToUndefined(uiData.notes),
         duration_minutes: 30, // Padrao
+        created_by: emptyToUndefined(uiData.createdBy),
       }
     }
 
@@ -98,6 +107,7 @@ export const appointmentMapper = {
       status: uiData.status || 'Confirmada',
       room: uiData.room,
       notes: uiData.notes,
+      created_by: uiData.createdBy,
     }
   },
 }

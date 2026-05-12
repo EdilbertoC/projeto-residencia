@@ -1,6 +1,5 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 
-import './App.css'
 import { AppShell } from './components/AppShell.jsx'
 import { canAccess } from './config/permissions.js'
 import { useAuth } from './hooks/useAuth.js'
@@ -78,7 +77,7 @@ function App() {
 
   // Rotas públicas (sem shell)
   if (!route.withShell) {
-    return <RouteSuspense>{route.element}</RouteSuspense>
+    return <RouteSuspense resetKey={location.pathname}>{route.element}</RouteSuspense>
   }
 
   // Usuário não autenticado
@@ -103,23 +102,74 @@ function App() {
 
   return (
     <AppShell currentPath={location.pathname} navigate={navigate} role={role} routeTitle={route.title}>
-      <RouteSuspense>{route.element}</RouteSuspense>
+      <RouteSuspense resetKey={location.pathname}>{route.element}</RouteSuspense>
     </AppShell>
   )
 }
 
-function RouteSuspense({ children }) {
+class RouteErrorBoundary extends Component {
+  state = { error: null }
+
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
+
+  componentDidUpdate(previousProps) {
+    if (previousProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null })
+    }
+  }
+
+  render() {
+    if (this.state.error) {
+      return <RouteErrorFallback />
+    }
+
+    return this.props.children
+  }
+}
+
+function RouteSuspense({ children, resetKey }) {
   return (
-    <Suspense fallback={<RouteFallback />}>
-      {children}
-    </Suspense>
+    <RouteErrorBoundary resetKey={resetKey}>
+      <Suspense fallback={<RouteFallback />}>
+        {children}
+      </Suspense>
+    </RouteErrorBoundary>
   )
 }
 
 function RouteFallback() {
   return (
-    <div className="flex min-h-[40vh] items-center justify-center">
-      <p className="text-sm text-[#a3a3a3]">Carregando...</p>
+    <div className="flex min-h-[40vh] items-center justify-center px-4">
+      <div className="w-full max-w-xl rounded-2xl border border-[#404040] bg-[#262626] p-5 shadow-sm">
+        <div className="h-4 w-36 animate-pulse rounded bg-[#404040]" />
+        <div className="mt-4 grid gap-3">
+          <div className="h-20 animate-pulse rounded-xl bg-[#1a1a1a]" />
+          <div className="h-20 animate-pulse rounded-xl bg-[#1a1a1a]" />
+        </div>
+        <p className="mt-4 text-sm text-[#a3a3a3]">Carregando modulo...</p>
+      </div>
+    </div>
+  )
+}
+
+function RouteErrorFallback() {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center px-4">
+      <div className="max-w-xl rounded-2xl border border-red-500/40 bg-[#262626] p-6 text-center shadow-sm">
+        <h2 className="text-lg font-bold text-[#e5e5e5]">NÃ£o foi possÃ­vel carregar esta tela</h2>
+        <p className="mt-2 text-sm leading-6 text-[#a3a3a3]">
+          Ocorreu um erro ao abrir o modulo. Recarregue a pagina e tente novamente.
+        </p>
+        <button
+          className="mt-5 rounded-lg bg-[#3b82f6] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#2563eb]"
+          onClick={() => window.location.reload()}
+          type="button"
+        >
+          Recarregar
+        </button>
+      </div>
     </div>
   )
 }

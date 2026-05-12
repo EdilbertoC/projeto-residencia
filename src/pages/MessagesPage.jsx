@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { normalizeRole } from '../config/permissions.js'
+import { StethoscopeIcon } from '../components/Brand.jsx'
 import { FeatureCallout } from '../components/FeatureState.jsx'
 import { featurePanelClass } from '../components/featureStateStyles.js'
 import { communicationRepository } from '../repositories/communicationRepository.js'
@@ -588,8 +589,8 @@ function MessageComposer({ allowedChannelKeys, draft, onChange, onClose, onSubmi
   }
 
   return (
-    <ModalFrame onClose={onClose} title="Nova Mensagem">
-      <form className="space-y-4" onSubmit={onSubmit}>
+    <ModalFrame branded onClose={onClose} title="Nova Mensagem">
+      <form className="space-y-5" onSubmit={onSubmit}>
         <DarkField label="Paciente">
           <div className="space-y-2">
             <input
@@ -671,7 +672,7 @@ function MessageComposer({ allowedChannelKeys, draft, onChange, onClose, onSubmi
 
         <DarkField label="Mensagem">
           <textarea
-            className={textareaClass}
+            className={`${textareaClass} min-h-44`}
             onChange={(event) => update('content', event.target.value)}
             placeholder="Escreva a mensagem"
             value={draft.content}
@@ -738,17 +739,24 @@ function TemplateEditor({ allowedChannelKeys, draft, onChange, onClose, onSubmit
   )
 }
 
-function ModalFrame({ children, onClose, title }) {
+function ModalFrame({ branded = false, children, onClose, title }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="w-full max-w-2xl rounded-2xl border border-[#404040] bg-[#262626] shadow-2xl">
+      <div className={`flex max-h-[94vh] w-full ${branded ? 'max-w-6xl' : 'max-w-2xl'} flex-col overflow-hidden rounded-xl border border-[#404040] bg-[#242424] shadow-2xl`}>
         <div className="flex items-center justify-between border-b border-[#404040] px-5 py-4">
-          <h2 className="text-lg font-bold text-[#f5f5f5]">{title}</h2>
+          <div className="flex items-center gap-3">
+            {branded ? (
+              <span className="grid size-9 place-items-center rounded-sm bg-[#3b82f6] text-white">
+                <StethoscopeIcon className="size-5" />
+              </span>
+            ) : null}
+            <h2 className="text-lg font-bold text-[#f5f5f5]">{title}</h2>
+          </div>
           <button className="grid size-9 place-items-center rounded-sm text-[#a3a3a3] hover:bg-[#303030]" onClick={onClose} type="button">
             <CommIcon className="size-5" name="x" />
           </button>
         </div>
-        <div className="p-5">{children}</div>
+        <div className="min-h-0 overflow-y-auto p-5">{children}</div>
       </div>
     </div>
   )

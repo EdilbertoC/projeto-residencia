@@ -1,15 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { EditorContent, useEditor } from '@tiptap/react'
-import StarterKit from '@tiptap/starter-kit'
-import Underline from '@tiptap/extension-underline'
-import TextAlign from '@tiptap/extension-text-align'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { normalizeRole } from '../config/permissions.js'
+import { StethoscopeIcon } from '../components/Brand.jsx'
+import { RichTextEditor } from '../components/RichTextEditor.jsx'
+import { DarkField, appCardClass as cardClass, appInputClass as inputClass, appLabelClass as labelClass } from '../components/ui.jsx'
+import { reportTemplates } from '../data/reportTemplates.js'
 import { patientRepository } from '../repositories/patientRepository.js'
 import { professionalRepository } from '../repositories/professionalRepository.js'
 import { profileRepository } from '../repositories/profileRepository.js'
 import { reportRepository } from '../repositories/reportRepository.js'
-import { StethoscopeIcon } from '../components/Brand.jsx'
 
 const ITEMS_PER_PAGE = 25
 
@@ -31,94 +30,6 @@ const orderOptions = [
   { label: 'Criação mais antiga', value: 'created_at.asc' },
   { label: 'Prazo mais proximo', value: 'due_at.asc' },
   { label: 'Prazo mais distante', value: 'due_at.desc' },
-]
-
-const inputClass =
-  'h-10 w-full rounded-lg border border-[#404040] bg-[#1a1a1a] px-3 text-sm text-[#e5e5e5] outline-none transition placeholder:text-[#a3a3a3] focus:border-[#3b82f6] focus:ring-1 focus:ring-[#3b82f6]'
-const labelClass = 'mb-1.5 block text-xs font-medium text-[#e5e5e5]'
-const cardClass = 'rounded-2xl border border-[#404040] bg-[#262626] shadow-sm'
-
-const reportTemplates = [
-  {
-    id: 'consulta-medica',
-    category: 'Relatórios',
-    title: 'Relatório de Consulta Médica',
-    description: 'Resumo clínico com queixa, exame físico, hipótese diagnóstica e conduta.',
-    popular: true,
-    tags: ['consulta', 'clínico', 'conduta'],
-    exam: 'Consulta médica',
-    cidCode: 'Z00.0',
-    diagnosis: 'Paciente avaliado(a) em consulta médica, com hipótese diagnóstica em investigação conforme quadro clínico.',
-    conclusion: 'Paciente orientado(a) quanto à conduta proposta, sinais de alerta e necessidade de seguimento.',
-    contentHtml:
-      '<h2>Relatório de Consulta Médica</h2><p><strong>Queixa principal:</strong> </p><p><strong>História clínica:</strong> </p><p><strong>Exame físico:</strong> </p><p><strong>Hipóteses diagnósticas:</strong> </p><p><strong>Conduta:</strong> </p>',
-  },
-  {
-    id: 'evolucao-clinica',
-    category: 'Relatórios',
-    title: 'Evolução Clínica',
-    description: 'Registro de evolução diária para acompanhamento de internação.',
-    tags: ['internação', 'evolução', 'diário'],
-    exam: 'Evolução clínica',
-    cidCode: 'Z51.9',
-    diagnosis: 'Paciente em acompanhamento clínico durante internação, com evolução registrada em prontuário.',
-    conclusion: 'Manter acompanhamento multiprofissional e reavaliar conduta conforme evolução.',
-    contentHtml:
-      '<h2>Evolução Clínica</h2><p><strong>Data e hora:</strong> </p><p><strong>Estado geral:</strong> </p><p><strong>Sinais vitais:</strong> </p><p><strong>Evolução:</strong> </p><p><strong>Conduta do dia:</strong> </p><p><strong>Profissional:</strong> </p>',
-  },
-  {
-    id: 'hemograma',
-    category: 'Laudos',
-    title: 'Laudo de Hemograma',
-    description: 'Interpretação clínica de hemograma com correlação diagnóstica.',
-    tags: ['laboratorial', 'sangue', 'hemograma'],
-    exam: 'Hemograma completo',
-    cidCode: 'Z01.7',
-    diagnosis: 'Exame laboratorial avaliado em conjunto com quadro clínico e exames complementares.',
-    conclusion: 'Resultado analisado e correlacionado com a hipótese diagnóstica descrita.',
-    contentHtml:
-      '<h2>Laudo de Hemograma</h2><p><strong>Material:</strong> Sangue periférico.</p><p><strong>Achados principais:</strong> </p><p><strong>Interpretação:</strong> </p><p><strong>Conclusão:</strong> </p>',
-  },
-  {
-    id: 'imagem',
-    category: 'Laudos',
-    title: 'Laudo de Imagem',
-    description: 'Modelo para exames de imagem com descrição técnica e impressão diagnóstica.',
-    popular: true,
-    tags: ['imagem', 'radiologia', 'exame'],
-    exam: 'Exame de imagem',
-    cidCode: 'Z01.6',
-    diagnosis: 'Achados de imagem descritos conforme exame realizado e indicação clínica.',
-    conclusion: 'Impressão diagnóstica registrada conforme achados do exame.',
-    contentHtml:
-      '<h2>Laudo de Imagem</h2><p><strong>Técnica:</strong> </p><p><strong>Achados:</strong> </p><p><strong>Impressão diagnóstica:</strong> </p><p><strong>Recomendação:</strong> </p>',
-  },
-  {
-    id: 'pre-operatorio',
-    category: 'Relatórios',
-    title: 'Avaliação Pré-operatória',
-    description: 'Avaliação clínica para estratificação de risco e liberação cirúrgica.',
-    tags: ['pré-op', 'cirurgia', 'risco'],
-    exam: 'Avaliação pré-operatória',
-    cidCode: 'Z01.8',
-    diagnosis: 'Paciente em avaliação pré-operatória, com risco definido conforme dados clínicos disponíveis.',
-    conclusion: 'Conduta pré-operatória orientada conforme avaliação clínica e exames apresentados.',
-    contentHtml:
-      '<h2>Avaliação Pré-operatória</h2><p><strong>Procedimento proposto:</strong> </p><p><strong>Comorbidades:</strong> </p><p><strong>Medicamentos em uso:</strong> </p><p><strong>Estratificação de risco:</strong> </p><p><strong>Orientações:</strong> </p>',
-  },
-  {
-    id: 'encaminhamento',
-    category: 'Encaminhamentos',
-    title: 'Encaminhamento Especializado',
-    description: 'Encaminhamento com justificativa clínica e resumo do caso.',
-    tags: ['encaminhamento', 'especialista', 'conduta'],
-    exam: 'Encaminhamento médico',
-    cidCode: 'Z75.8',
-    diagnosis: 'Paciente encaminhado(a) para avaliação especializada por necessidade clínica descrita.',
-    conclusion: 'Solicitada avaliação especializada e continuidade do cuidado compartilhado.',
-    contentHtml:
-      '<h2>Encaminhamento Especializado</h2><p><strong>Especialidade solicitada:</strong> </p><p><strong>Resumo clínico:</strong> </p><p><strong>Motivo do encaminhamento:</strong> </p><p><strong>Exames anexos:</strong> </p>',
-  },
 ]
 
 const emptyEditor = {
@@ -320,6 +231,7 @@ export function ReportsPage({ role }) {
     setEditor({
       ...emptyEditor,
       patientId: patientOptions[0]?.id || '',
+      requestedBy: isDoctorRole ? currentProfessional?.name || viewerProfile?.name || '' : '',
     })
     setEditorOpen(true)
   }
@@ -566,13 +478,16 @@ export function ReportsPage({ role }) {
 
       {editorOpen ? (
         <ReportEditorModalV3
+          currentProfessional={currentProfessional}
           editor={editor}
+          isDoctorRole={isDoctorRole}
           onChange={setEditor}
           onClose={() => setEditorOpen(false)}
           onSave={handleSave}
           patientOptions={patientOptions}
           professionalOptions={professionalOptions}
           saving={saving}
+          viewerProfile={viewerProfile}
         />
       ) : null}
 
@@ -613,10 +528,33 @@ function ReportRow({ onEdit, onView, report }) {
   )
 }
 
-function ReportEditorModalV3({ editor, onChange, onClose, onSave, saving }) {
+function ReportEditorModalV3({
+  currentProfessional,
+  editor,
+  isDoctorRole,
+  onChange,
+  onClose,
+  onSave,
+  patientOptions,
+  professionalOptions,
+  saving,
+  viewerProfile,
+}) {
+  const selectedPatient = patientOptions.find((patient) => String(patient.id) === String(editor.patientId))
+  const doctorRequesterName = currentProfessional?.name || viewerProfile?.name || ''
+  const [patientSearch, setPatientSearch] = useState(selectedPatient?.name || '')
+  const [requesterSearch, setRequesterSearch] = useState(editor.requestedBy || doctorRequesterName)
   const [templateSearch, setTemplateSearch] = useState('')
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const isValid = isReportEditorValid(editor)
+  const filteredPatients = patientOptions.filter((patient) => {
+    const query = normalizeSearch(patientSearch)
+    return query && normalizeSearch(patient.name).includes(query)
+  })
+  const filteredProfessionals = professionalOptions.filter((professional) => {
+    const query = normalizeSearch(requesterSearch)
+    return query && normalizeSearch(professional.name).includes(query)
+  })
   const filteredTemplates = reportTemplates.filter((template) => {
     const query = normalizeSearch(templateSearch)
     const matchesSearch = !query || normalizeSearch([template.title, template.description, template.tags.join(' ')].join(' ')).includes(query)
@@ -625,6 +563,22 @@ function ReportEditorModalV3({ editor, onChange, onClose, onSave, saving }) {
 
   function updateField(field, value) {
     onChange((current) => ({ ...current, [field]: value }))
+  }
+
+  useEffect(() => {
+    if (isDoctorRole && doctorRequesterName && !editor.requestedBy) {
+      onChange((current) => ({ ...current, requestedBy: doctorRequesterName }))
+    }
+  }, [doctorRequesterName, editor.requestedBy, isDoctorRole, onChange])
+
+  function selectPatient(patient) {
+    setPatientSearch(patient.name)
+    updateField('patientId', patient.id)
+  }
+
+  function selectRequester(professional) {
+    setRequesterSearch(professional.name)
+    updateField('requestedBy', professional.name)
   }
 
   function applyTemplate(template) {
@@ -722,6 +676,71 @@ function ReportEditorModalV3({ editor, onChange, onClose, onSave, saving }) {
               </div>
             </div>
 
+            <div className="mb-5 grid gap-4 md:grid-cols-2">
+              <DarkField label="Paciente *">
+                <div className="relative">
+                  <input
+                    className={inputClass}
+                    onChange={(event) => {
+                      setPatientSearch(event.target.value)
+                      updateField('patientId', '')
+                    }}
+                    placeholder="Digite o nome do paciente"
+                    type="search"
+                    value={patientSearch}
+                  />
+                  {patientSearch && !editor.patientId ? (
+                    <SearchMenu
+                      emptyText="Nenhum paciente encontrado."
+                      items={filteredPatients.slice(0, 6)}
+                      onSelect={selectPatient}
+                    />
+                  ) : null}
+                </div>
+              </DarkField>
+
+              <DarkField label="Solicitante *">
+                <div className="relative">
+                  <input
+                    className={inputClass}
+                    disabled={isDoctorRole}
+                    onChange={(event) => {
+                      if (isDoctorRole) return
+                      setRequesterSearch(event.target.value)
+                      updateField('requestedBy', event.target.value)
+                    }}
+                    placeholder="Digite o nome do médico solicitante"
+                    readOnly={isDoctorRole}
+                    type="search"
+                    value={isDoctorRole ? doctorRequesterName : requesterSearch}
+                  />
+                  {!isDoctorRole && requesterSearch ? (
+                    <SearchMenu
+                      emptyText="Nenhum médico encontrado."
+                      items={filteredProfessionals.slice(0, 6)}
+                      onSelect={selectRequester}
+                    />
+                  ) : null}
+                </div>
+              </DarkField>
+
+              <DarkField label="Exame *">
+                <input className={inputClass} onChange={(event) => updateField('exam', event.target.value)} value={editor.exam} />
+              </DarkField>
+
+              <DarkField label="CID-10 *">
+                <input className={inputClass} onChange={(event) => updateField('cidCode', event.target.value)} value={editor.cidCode} />
+              </DarkField>
+
+              <DarkField label="Diagnóstico *">
+                <input className={inputClass} onChange={(event) => updateField('diagnosis', event.target.value)} value={editor.diagnosis} />
+              </DarkField>
+
+              <DarkField label="Conclusão *">
+                <input className={inputClass} onChange={(event) => updateField('conclusion', event.target.value)} value={editor.conclusion} />
+              </DarkField>
+            </div>
+
             <DarkField label="Editor de texto">
               <RichTextEditor
                 onChange={(value) => updateField('contentHtml', value)}
@@ -752,122 +771,6 @@ function ReportEditorModalV3({ editor, onChange, onClose, onSave, saving }) {
         </div>
       </div>
     </div>
-  )
-}
-
-function RichTextEditor({ onChange, value }) {
-  const lastSyncedHtmlRef = useRef(value || '')
-  const applyingExternalContentRef = useRef(false)
-  const tiptapEditor = useEditor({
-    extensions: [
-      StarterKit,
-      Underline,
-      TextAlign.configure({
-        types: ['heading', 'paragraph'],
-      }),
-    ],
-    content: value || '',
-    editorProps: {
-      attributes: {
-        class: 'report-rich-surface min-h-[560px] px-4 py-3 text-sm leading-6 text-[#e5e5e5] outline-none',
-      },
-    },
-    shouldRerenderOnTransaction: false,
-    onUpdate: ({ editor: currentEditor }) => {
-      if (applyingExternalContentRef.current) return
-
-      const nextHtml = currentEditor.getHTML()
-      lastSyncedHtmlRef.current = nextHtml
-      onChange(nextHtml)
-    },
-  })
-
-  useEffect(() => {
-    if (!tiptapEditor) return
-
-    const nextValue = value || ''
-    if (lastSyncedHtmlRef.current === nextValue) return
-
-    if (tiptapEditor.getHTML() === nextValue) {
-      lastSyncedHtmlRef.current = nextValue
-      return
-    }
-
-    applyingExternalContentRef.current = true
-    try {
-      tiptapEditor.commands.setContent(nextValue, { emitUpdate: false })
-    } finally {
-      applyingExternalContentRef.current = false
-    }
-    lastSyncedHtmlRef.current = nextValue
-  }, [tiptapEditor, value])
-
-  const blockFormat = tiptapEditor?.isActive('heading', { level: 2 })
-    ? 'h2'
-    : tiptapEditor?.isActive('heading', { level: 3 })
-      ? 'h3'
-      : 'p'
-
-  return (
-    <div className="report-rich-editor overflow-hidden rounded-sm border border-[#404040] bg-[#171717]">
-      <div className="report-rich-toolbar flex flex-wrap items-center gap-1 border-b border-[#404040] bg-[#202020] px-3 py-2">
-        <TipTapToolbarButton disabled={!tiptapEditor?.can().undo()} label="Desfazer" name="undo" onClick={() => tiptapEditor?.chain().focus().undo().run()} />
-        <TipTapToolbarButton disabled={!tiptapEditor?.can().redo()} label="Refazer" name="redo" onClick={() => tiptapEditor?.chain().focus().redo().run()} />
-        <span className="mx-1 h-5 w-px bg-[#404040]" />
-        <select
-          className="h-8 rounded-sm border border-[#404040] bg-[#171717] px-2 text-xs font-semibold text-[#d4d4d4]"
-          onChange={(event) => {
-            const selected = event.target.value
-
-            if (selected === 'h2') {
-              tiptapEditor?.chain().focus().toggleHeading({ level: 2 }).run()
-              return
-            }
-
-            if (selected === 'h3') {
-              tiptapEditor?.chain().focus().toggleHeading({ level: 3 }).run()
-              return
-            }
-
-            tiptapEditor?.chain().focus().setParagraph().run()
-          }}
-          value={blockFormat}
-        >
-          <option value="p">Padrao</option>
-          <option value="h2">Titulo</option>
-          <option value="h3">Subtitulo</option>
-        </select>
-        <TipTapToolbarButton active={tiptapEditor?.isActive('bold')} label="Negrito" name="bold" onClick={() => tiptapEditor?.chain().focus().toggleBold().run()} />
-        <TipTapToolbarButton active={tiptapEditor?.isActive('italic')} label="Italico" name="italic" onClick={() => tiptapEditor?.chain().focus().toggleItalic().run()} />
-        <TipTapToolbarButton active={tiptapEditor?.isActive('underline')} label="Sublinhado" name="underline" onClick={() => tiptapEditor?.chain().focus().toggleUnderline().run()} />
-        <TipTapToolbarButton active={tiptapEditor?.isActive('strike')} label="Tachado" name="strike" onClick={() => tiptapEditor?.chain().focus().toggleStrike().run()} />
-        <span className="mx-1 h-5 w-px bg-[#404040]" />
-        <TipTapToolbarButton active={tiptapEditor?.isActive({ textAlign: 'left' })} label="Alinhar a esquerda" name="align-left" onClick={() => tiptapEditor?.chain().focus().setTextAlign('left').run()} />
-        <TipTapToolbarButton active={tiptapEditor?.isActive({ textAlign: 'center' })} label="Centralizar" name="align-center" onClick={() => tiptapEditor?.chain().focus().setTextAlign('center').run()} />
-        <TipTapToolbarButton active={tiptapEditor?.isActive({ textAlign: 'right' })} label="Alinhar a direita" name="align-right" onClick={() => tiptapEditor?.chain().focus().setTextAlign('right').run()} />
-        <TipTapToolbarButton active={tiptapEditor?.isActive('bulletList')} label="Lista" name="list" onClick={() => tiptapEditor?.chain().focus().toggleBulletList().run()} />
-      </div>
-      <EditorContent editor={tiptapEditor} />
-    </div>
-  )
-}
-
-function TipTapToolbarButton({ active = false, disabled = false, label, name, onClick }) {
-  return (
-    <button
-      aria-label={label}
-      aria-pressed={active}
-      className={`grid size-8 place-items-center rounded-sm transition ${
-        active ? 'bg-[#3b82f6]/20 text-[#3b82f6]' : 'text-[#a3a3a3] hover:bg-[#303030] hover:text-[#e5e5e5]'
-      } disabled:cursor-not-allowed disabled:opacity-40`}
-      disabled={disabled}
-      onMouseDown={(event) => event.preventDefault()}
-      onClick={onClick}
-      title={label}
-      type="button"
-    >
-      <ReportIcon className="size-4" name={name} />
-    </button>
   )
 }
 
@@ -926,7 +829,7 @@ function ReportViewModal({ onClose, report }) {
             <DetailBlock label="Conclusão" value={report.conclusion || '-'} />
           </div>
           <div className="mt-6 rounded-xl border border-[#404040] bg-[#1a1a1a] p-5">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#a3a3a3]">Complemento</p>
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#a3a3a3]">Relatório</p>
             {report.contentHtml ? (
               <div
                 className="whitespace-pre-wrap text-sm leading-6 text-[#e5e5e5]"
@@ -951,11 +854,24 @@ function FilterField({ children, label }) {
   )
 }
 
-function DarkField({ children, label }) {
+function SearchMenu({ emptyText, items, onSelect }) {
   return (
-    <div className="block">
-      <span className={labelClass}>{label}</span>
-      {children}
+    <div className="absolute left-0 right-0 top-11 z-20 max-h-56 overflow-y-auto rounded-md border border-[#404040] bg-[#202020] shadow-2xl">
+      {items.length ? (
+        items.map((item) => (
+          <button
+            className="block w-full px-3 py-2 text-left text-sm font-semibold text-[#e5e5e5] transition hover:bg-[#303030]"
+            key={item.id || item.name}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => onSelect(item)}
+            type="button"
+          >
+            {item.name}
+          </button>
+        ))
+      ) : (
+        <p className="px-3 py-2 text-xs text-[#737373]">{emptyText}</p>
+      )}
     </div>
   )
 }
@@ -1044,6 +960,12 @@ function uniqueValues(values) {
 
 function isReportEditorValid(editor) {
   return [
+    editor.patientId,
+    editor.requestedBy,
+    editor.exam,
+    editor.cidCode,
+    editor.diagnosis,
+    editor.conclusion,
     editor.status,
     stripHtml(editor.contentHtml),
   ].every((value) => String(value || '').trim())
@@ -1116,7 +1038,7 @@ function printReportAsPdf(report, status) {
           <p class="value">${escapeHtml(report.conclusion || '-')}</p>
         </div>
         <div class="section box">
-          <p class="label">Complemento</p>
+          <p class="label">Relatório</p>
           <div class="value">${report.contentHtml ? sanitizePreviewHtml(report.contentHtml) : 'Nenhum complemento informado.'}</div>
         </div>
       </body>

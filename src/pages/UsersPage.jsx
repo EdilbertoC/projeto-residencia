@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { StethoscopeIcon } from '../components/Brand.jsx'
 import { ADMIN_CREATABLE_ROLES, GESTOR_CREATABLE_ROLES, hasCapability, normalizeRole, ROLE_LABELS } from '../config/permissions.js'
 import { userRepository } from '../repositories/userRepository.js'
 
@@ -18,6 +19,11 @@ const authMethodOptions = [
     description: 'Definir senha inicial agora',
   },
 ]
+const BRAZILIAN_UF = [
+  'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG',
+  'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE',
+  'TO',
+]
 const initialUserForm = {
   email: '',
   full_name: '',
@@ -28,6 +34,8 @@ const initialUserForm = {
   password: '',
   confirm_password: '',
   create_patient_record: false,
+  crm: '',
+  crm_uf: '',
 }
 
 export function UsersPage({ role: currentRole }) {
@@ -37,6 +45,8 @@ export function UsersPage({ role: currentRole }) {
   const [modalOpen, setModalOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState(null)
+  const [editingUserId, setEditingUserId] = useState(null)
+  const [selectedUser, setSelectedUser] = useState(null)
   const [form, setForm] = useState(initialUserForm)
   const [roleFilter, setRoleFilter] = useState('Todos')
 
@@ -44,6 +54,7 @@ export function UsersPage({ role: currentRole }) {
   const canManageUsers = hasCapability(normalizedRole, 'manageUsers')
   const creatableRoles = normalizedRole === 'admin' ? ADMIN_CREATABLE_ROLES : GESTOR_CREATABLE_ROLES
   const isPasswordCreation = form.auth_method === 'password'
+  const isDoctorForm = normalizeRole(form.role) === 'medico'
   const filterableRoles = normalizedRole === 'admin' ? ADMIN_CREATABLE_ROLES : GESTOR_CREATABLE_ROLES
   const filteredUsers = users.filter((user) => {
     if (roleFilter === 'Todos') return true
@@ -72,6 +83,28 @@ export function UsersPage({ role: currentRole }) {
     setForm((current) => ({ ...current, [name]: type === 'checkbox' ? checked : value }))
   }
 
+  function openCreateModal() {
+    setEditingUserId(null)
+    setForm(initialUserForm)
+    setModalOpen(true)
+  }
+
+  function openEditModal(user) {
+    setSelectedUser(null)
+    setEditingUserId(user.id)
+    setForm({
+      ...initialUserForm,
+      email: user.email || '',
+      full_name: user.full_name || user.name || '',
+      phone: user.phone || user.phone_mobile || '',
+      cpf: user.cpf || '',
+      role: normalizeRole(getUserRole(user)) || '',
+      crm: user.crm || '',
+      crm_uf: user.crm_uf || user.crmUf || '',
+    })
+    setModalOpen(true)
+  }
+
   async function handleCreate(event) {
     event.preventDefault()
     if (!canManageUsers) {
@@ -84,7 +117,12 @@ export function UsersPage({ role: currentRole }) {
       return
     }
 
-    if (isPasswordCreation) {
+    if (isDoctorForm && (!form.crm || !form.crm_uf)) {
+      window.alert('CRM e CRM UF são obrigatórios para usuários médicos.')
+      return
+    }
+
+    if (!editingUserId && isPasswordCreation) {
       if (!form.password || !form.confirm_password) {
         window.alert('Preencha a senha e a confirmação de senha.')
         return
@@ -103,7 +141,11 @@ export function UsersPage({ role: currentRole }) {
 
     setSaving(true)
     try {
-      if (isPasswordCreation) {
+      if (editingUserId) {
+        const updatedUser = await userRepository.update(editingUserId, form)
+        setUsers((current) => current.map((user) => (user.id === editingUserId ? { ...user, ...form, ...updatedUser } : user)))
+        window.alert(`Usuário atualizado: ${form.email}.`)
+      } else if (isPasswordCreation) {
         await userRepository.createWithPassword(form)
         window.alert(`Usuário criado com email e senha para ${form.email}.`)
       } else {
@@ -111,10 +153,11 @@ export function UsersPage({ role: currentRole }) {
         window.alert(`Usuário criado! Magic Link enviado para ${form.email}.`)
       }
       setModalOpen(false)
+      setEditingUserId(null)
       setForm(initialUserForm)
-      loadUsers()
+      if (!editingUserId) loadUsers()
     } catch (err) {
-      window.alert(`Erro ao criar usuário: ${err.message}`)
+      window.alert(`Erro ao salvar usuário: ${err.message}`)
     } finally {
       setSaving(false)
     }
@@ -160,7 +203,7 @@ export function UsersPage({ role: currentRole }) {
         </div>
         <button
           className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[#3b82f6] px-4 text-sm font-medium text-white shadow-sm transition hover:bg-[#2563eb] md:w-auto"
-          onClick={() => setModalOpen(true)}
+          onClick={openCreateModal}
           type="button"
         >
           + Novo usuário
@@ -212,7 +255,7 @@ export function UsersPage({ role: currentRole }) {
                   filteredUsers.map((user) => {
                     const userRole = getUserRole(user)
                     return (
-                      <tr className="transition hover:bg-[#303030]" key={user.id}>
+                      <tr className="cursor-pointer transition hover:bg-[#303030]" key={user.id} onClick={() => setSelectedUser(user)}>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
                             <span className="grid size-8 place-items-center rounded-full bg-[#333333] text-xs font-bold text-[#3b82f6]">
@@ -238,7 +281,10 @@ export function UsersPage({ role: currentRole }) {
                           <button
                             className="rounded-lg border border-[#ef4444]/30 bg-[#ef4444]/10 px-3 py-1.5 text-xs font-semibold text-[#ef4444] transition hover:bg-[#ef4444]/20 disabled:opacity-50"
                             disabled={deletingId === user.id}
-                            onClick={() => handleDelete(user)}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              handleDelete(user)
+                            }}
                             type="button"
                           >
                             {deletingId === user.id ? 'Deletando...' : 'Deletar'}
@@ -260,18 +306,32 @@ export function UsersPage({ role: currentRole }) {
         </div>
       )}
 
+      {selectedUser ? (
+        <UserDetailModal
+          onClose={() => setSelectedUser(null)}
+          onDelete={handleDelete}
+          onEdit={openEditModal}
+          user={selectedUser}
+        />
+      ) : null}
+
       {modalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setModalOpen(false)}>
           <div
-            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-[#404040] bg-[#262626] p-6 shadow-xl"
+            className="flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-[#404040] bg-[#242424] shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-bold text-[#e5e5e5]">Novo Usuário</h2>
-                <p className="mt-1 text-xs text-[#a3a3a3]">
-                  {isPasswordCreation ? 'Crie o acesso inicial com email e senha.' : 'Um Magic Link sera enviado para o email cadastrado.'}
-                </p>
+            <div className="flex items-center justify-between border-b border-[#404040] px-6 py-4">
+              <div className="flex items-center gap-3">
+                <span className="grid size-9 place-items-center rounded-sm bg-[#3b82f6] text-white">
+                  <StethoscopeIcon className="size-5" />
+                </span>
+                <div>
+                  <h2 className="text-lg font-bold text-[#e5e5e5]">{editingUserId ? 'Editar Usuário' : 'Novo Usuário'}</h2>
+                  <p className="mt-1 text-xs text-[#a3a3a3]">
+                    {editingUserId ? 'Atualize os dados e permissões do usuário.' : isPasswordCreation ? 'Crie o acesso inicial com email e senha.' : 'Um Magic Link sera enviado para o email cadastrado.'}
+                  </p>
+                </div>
               </div>
               <button
                 className="rounded p-1 text-[#a3a3a3] transition hover:bg-[#333333]"
@@ -282,7 +342,8 @@ export function UsersPage({ role: currentRole }) {
               </button>
             </div>
 
-            <form className="space-y-4" onSubmit={handleCreate}>
+            <form className="min-h-0 space-y-5 overflow-y-auto p-6" onSubmit={handleCreate}>
+              {!editingUserId ? (
               <div>
                 <span className={darkLabel}>Criar usuário usando *</span>
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -316,6 +377,7 @@ export function UsersPage({ role: currentRole }) {
                   })}
                 </div>
               </div>
+              ) : null}
 
               <div>
                 <label className={darkLabel}>Nome completo *</label>
@@ -417,6 +479,38 @@ export function UsersPage({ role: currentRole }) {
                 </select>
               </div>
 
+              {isDoctorForm ? (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className={darkLabel}>CRM *</label>
+                    <input
+                      className={darkInput}
+                      name="crm"
+                      onChange={handleFormChange}
+                      placeholder="Ex: 123456"
+                      required={isDoctorForm}
+                      value={form.crm}
+                    />
+                  </div>
+                  <div>
+                    <label className={darkLabel}>CRM UF *</label>
+                    <select
+                      className={darkInput}
+                      name="crm_uf"
+                      onChange={handleFormChange}
+                      required={isDoctorForm}
+                      value={form.crm_uf}
+                    >
+                      <option value="">Selecione</option>
+                      {BRAZILIAN_UF.map((uf) => (
+                        <option key={uf} value={uf}>{uf}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              ) : null}
+
+              {!editingUserId ? (
               <label className="flex cursor-pointer items-center gap-2 text-sm text-[#e5e5e5]">
                 <input
                   checked={form.create_patient_record}
@@ -428,7 +522,9 @@ export function UsersPage({ role: currentRole }) {
                 Criar também um registro de paciente
               </label>
 
-              <div className="flex justify-end gap-3 pt-2">
+              ) : null}
+
+              <div className="flex justify-end gap-3 border-t border-[#404040] pt-4">
                 <button
                   className="rounded-lg border border-[#404040] bg-[#262626] px-4 py-2 text-sm font-medium text-[#e5e5e5] transition hover:bg-[#333333]"
                   disabled={saving}
@@ -442,13 +538,80 @@ export function UsersPage({ role: currentRole }) {
                   disabled={saving}
                   type="submit"
                 >
-                  {saving ? 'Criando...' : isPasswordCreation ? 'Criar com senha' : 'Criar e enviar Magic Link'}
+                  {saving ? 'Salvando...' : editingUserId ? 'Salvar alterações' : isPasswordCreation ? 'Criar com senha' : 'Criar e enviar Magic Link'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       ) : null}
+    </div>
+  )
+}
+
+function UserDetailModal({ onClose, onDelete, onEdit, user }) {
+  const userRole = normalizeRole(getUserRole(user)) || getUserRole(user)
+  const details = [
+    ['Nome', user.full_name || user.name || 'Não informado'],
+    ['Email', user.email || 'Não informado'],
+    ['Celular', user.phone || user.phone_mobile || 'Não informado'],
+    ['CPF', user.cpf || 'Não informado'],
+    ['Perfil', ROLE_LABELS[userRole] || userRole || 'Não informado'],
+    ['Status', user.email_confirmed_at ? 'Ativo' : 'Pendente'],
+  ]
+
+  if (userRole === 'medico') {
+    details.push(['CRM', user.crm || 'Não informado'])
+    details.push(['CRM UF', user.crm_uf || user.crmUf || 'Não informado'])
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-3xl rounded-xl border border-[#404040] bg-[#242424] shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-[#404040] px-6 py-4">
+          <div>
+            <h2 className="text-lg font-bold text-[#e5e5e5]">Detalhes do usuário</h2>
+            <p className="mt-1 text-xs text-[#a3a3a3]">{user.email}</p>
+          </div>
+          <button className="rounded p-1 text-[#a3a3a3] transition hover:bg-[#333333]" onClick={onClose} type="button">
+            ✕
+          </button>
+        </div>
+        <div className="grid gap-4 p-6 md:grid-cols-2">
+          {details.map(([label, value]) => (
+            <div className="rounded-xl border border-[#404040] bg-[#1a1a1a] p-4" key={label}>
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#a3a3a3]">{label}</p>
+              <p className="mt-2 text-sm font-semibold text-[#e5e5e5]">{value}</p>
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap justify-end gap-3 border-t border-[#404040] px-6 py-4">
+          <button
+            className="mr-auto rounded-lg border border-[#ef4444]/30 bg-[#ef4444]/10 px-4 py-2 text-sm font-semibold text-[#ef4444] transition hover:bg-[#ef4444]/20"
+            onClick={() => onDelete(user)}
+            type="button"
+          >
+            Deletar
+          </button>
+          <button
+            className="rounded-lg border border-[#404040] bg-[#262626] px-4 py-2 text-sm font-semibold text-[#e5e5e5] transition hover:bg-[#333333]"
+            onClick={onClose}
+            type="button"
+          >
+            Fechar
+          </button>
+          <button
+            className="rounded-lg bg-[#3b82f6] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#2563eb]"
+            onClick={() => onEdit(user)}
+            type="button"
+          >
+            Editar
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

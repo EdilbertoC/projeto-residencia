@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { hasCapability } from '../config/permissions.js'
 import { patientRepository } from '../repositories/patientRepository.js'
@@ -179,18 +179,32 @@ export function PatientsPage({ navigate, role }) {
   try {
     if (isNew) {
       const created = normalizeCreatedPatient(await patientRepository.create(patient))
+      const patientId = created?.id || patient.id
+      const avatarResult = patient.avatarFile
+        ? await patientRepository.uploadAvatar(patientId, patient.avatarFile)
+        : null
       const newRow = {
         ...patient,
-        id: created?.id || patient.id,
-        detailId: created?.id || patient.detailId || patient.id,
+        avatarFile: undefined,
+        avatarUrl: avatarResult?.avatarUrl || patient.avatarUrl,
+        id: patientId,
+        detailId: patientId || patient.detailId || patient.id,
         name: created?.full_name || created?.name || patient.name,
         phone: created?.phone_mobile || created?.phone || patient.phone,
       }
       setRows((currentRows) => [newRow, ...currentRows])
     } else {
       await patientRepository.update(patient.id, patient)
+      const avatarResult = patient.avatarFile
+        ? await patientRepository.uploadAvatar(patient.id, patient.avatarFile)
+        : null
+      const nextPatient = {
+        ...patient,
+        avatarFile: undefined,
+        avatarUrl: avatarResult?.avatarUrl || patient.avatarUrl,
+      }
       setRows((currentRows) =>
-        currentRows.map((item) => (item.id === patient.id ? patient : item))
+        currentRows.map((item) => (item.id === patient.id ? nextPatient : item))
       )
     }
   } catch (err) {
@@ -358,9 +372,13 @@ export function PatientsPage({ navigate, role }) {
                   <tr className="transition hover:bg-[#303030]" key={patient.id}>
                     <td className="px-6 py-4 align-top">
                       <button className="flex items-center gap-3 text-left" onClick={() => openDetail(patient)} type="button">
-                        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-[#333333] text-xs font-bold text-[#3b82f6]">
-                          {patient.name.charAt(0)}
-                        </span>
+                        {patient.avatarUrl ? (
+                          <img alt="" className="size-8 shrink-0 rounded-full border border-[#3b82f6]/30 object-cover" src={patient.avatarUrl} />
+                        ) : (
+                          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-[#333333] text-xs font-bold text-[#3b82f6]">
+                            {patient.name.charAt(0)}
+                          </span>
+                        )}
                         <span className="min-w-0">
                           <span className="block whitespace-normal break-words font-medium text-[#e5e5e5] transition hover:text-[#3b82f6]">
                             {patient.name}
@@ -509,7 +527,11 @@ function PatientEditor({ existingIds, onCancel, onSave, patient, saving }) {
     lastVisit: patient?.lastVisit || null,
     nextVisit: patient?.nextVisit || null,
     lastVisitIso: patient?.lastVisitIso || null,
+    avatarUrl: patient?.avatarUrl || patient?.avatar_url || '',
   }))
+  const fileInputRef = useRef(null)
+  const [avatarFile, setAvatarFile] = useState(null)
+  const [avatarPreview, setAvatarPreview] = useState(formData.avatarUrl)
   const [attachmentsOpen, setAttachmentsOpen] = useState(false)
   const isNewPatient = !patient
 
@@ -534,6 +556,15 @@ function PatientEditor({ existingIds, onCancel, onSave, patient, saving }) {
     }
 
     setFormData((currentData) => ({ ...currentData, [name]: nextValue }))
+  }
+
+  function handleAvatarChange(event) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setAvatarFile(file)
+    setAvatarPreview(URL.createObjectURL(file))
+    event.target.value = ''
   }
 
   function handleSubmit(event) {
@@ -584,6 +615,8 @@ function PatientEditor({ existingIds, onCancel, onSave, patient, saving }) {
       state: formData.state,
       address: formatAddress(formData),
       notes: formData.notesText ? [formData.notesText] : [],
+      avatarFile,
+      avatarUrl: avatarFile ? formData.avatarUrl : avatarPreview || formData.avatarUrl,
     })
   }
 
@@ -609,15 +642,27 @@ function PatientEditor({ existingIds, onCancel, onSave, patient, saving }) {
           <section className={darkCard}>
             <h2 className="mb-6 text-lg font-semibold text-[#e5e5e5]">Dados do Paciente</h2>
             <div className="mb-8 flex flex-col items-start gap-4 md:flex-row">
-              <div className="grid size-20 shrink-0 place-items-center rounded-full border border-[#3b82f6]/30 bg-[#3b82f6]/20 text-[#3b82f6]">
-                <PatientIcon className="size-10" name="user" />
-              </div>
+              {avatarPreview ? (
+                <img alt="" className="size-20 shrink-0 rounded-full border border-[#3b82f6]/30 object-cover" src={avatarPreview} />
+              ) : (
+                <div className="grid size-20 shrink-0 place-items-center rounded-full border border-[#3b82f6]/30 bg-[#3b82f6]/20 text-[#3b82f6]">
+                  <PatientIcon className="size-10" name="user" />
+                </div>
+              )}
               <button
                 className="mt-2 rounded-lg border border-[#404040] bg-[#1a1a1a] px-4 py-1.5 text-sm font-medium text-[#e5e5e5] transition hover:bg-[#333333]"
+                onClick={() => fileInputRef.current?.click()}
                 type="button"
               >
                 Carregar
               </button>
+              <input
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarChange}
+                ref={fileInputRef}
+                type="file"
+              />
             </div>
 
             <div className="grid grid-cols-1 gap-x-6 gap-y-6 md:grid-cols-12">
@@ -784,7 +829,15 @@ export function PatientDetailPage({ navigate, patient, role }) {
     setSaving(true)
     try {
       await patientRepository.update(updatedPatient.id, updatedPatient)
-      setLocalPatient((current) => ({ ...current, ...updatedPatient }))
+      const avatarResult = updatedPatient.avatarFile
+        ? await patientRepository.uploadAvatar(updatedPatient.id, updatedPatient.avatarFile)
+        : null
+      setLocalPatient((current) => ({
+        ...current,
+        ...updatedPatient,
+        avatarFile: undefined,
+        avatarUrl: avatarResult?.avatarUrl || updatedPatient.avatarUrl,
+      }))
       setEditing(false)
     } catch (err) {
       window.alert(`Erro ao salvar paciente: ${err.message}`)
@@ -831,6 +884,9 @@ export function PatientDetailPage({ navigate, patient, role }) {
           >
             <PatientIcon className="size-5" name="chevron-left" />
           </button>
+          {localPatient.avatarUrl ? (
+            <img alt="" className="mt-1 size-12 rounded-full border border-[#3b82f6]/30 object-cover" src={localPatient.avatarUrl} />
+          ) : null}
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#3b82f6]">Dados do Paciente</p>
             <h1 className="mt-1 text-2xl font-bold tracking-tight text-[#f5f5f5]">{localPatient.name}</h1>

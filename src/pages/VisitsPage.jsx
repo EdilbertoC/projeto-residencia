@@ -18,20 +18,20 @@ export function VisitsPage({ navigate }) {
 
   const visibleQueue = useMemo(() => {
     if (activeTab === 'finalizadas') {
-      return careQueue.filter((item) => item.status === 'Finalizada')
+      return careQueue.filter((item) => isFinalizedStatus(item.status))
     }
 
     if (activeTab === 'atendimento') {
-      return careQueue.filter((item) => item.status !== 'Finalizada' && item.status !== 'Aguardando médico')
+      return careQueue.filter((item) => !isFinalizedStatus(item.status) && !isWaitingDoctorStatus(item.status))
     }
 
-    return careQueue.filter((item) => item.status !== 'Finalizada')
+    return careQueue.filter((item) => !isFinalizedStatus(item.status))
   }, [activeTab, careQueue])
 
   const summary = [
-    { label: 'Na fila', value: careQueue.filter((item) => item.status !== 'Finalizada').length, tone: 'text-[#3b82f6]' },
+    { label: 'Na fila', value: careQueue.filter((item) => !isFinalizedStatus(item.status)).length, tone: 'text-[#3b82f6]' },
     { label: 'Alta prioridade', value: careQueue.filter((item) => item.priority === 'Alta').length, tone: 'text-red-400' },
-    { label: 'Finalizadas', value: careQueue.filter((item) => item.status === 'Finalizada').length, tone: 'text-emerald-400' },
+    { label: 'Finalizadas', value: careQueue.filter((item) => isFinalizedStatus(item.status)).length, tone: 'text-emerald-400' },
   ]
 
   return (
@@ -159,4 +159,22 @@ function PriorityPill({ priority }) {
         : 'bg-amber-500/20 text-amber-400'
 
   return <span className={`rounded px-2.5 py-1 text-xs font-bold ${className}`}>{priority}</span>
+}
+
+function isFinalizedStatus(status) {
+  return normalizeStatus(status) === 'finalizada'
+}
+
+function isWaitingDoctorStatus(status) {
+  return normalizeStatus(status) === 'aguardando_medico'
+}
+
+function normalizeStatus(status) {
+  return String(status || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
 }

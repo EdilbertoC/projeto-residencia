@@ -78,6 +78,42 @@ export const userRepository = {
     return response.json()
   },
 
+  async update(userId, data) {
+    let lastResponse = null
+    const body = cleanPayload({
+      email: data.email?.trim(),
+      full_name: data.full_name?.trim(),
+      phone: data.phone?.trim(),
+      phone_mobile: data.phone?.trim(),
+      cpf: data.cpf?.trim(),
+      role: data.role,
+      crm: data.crm?.trim(),
+      crm_uf: data.crm_uf?.trim() || data.crmUf?.trim(),
+    })
+
+    for (const table of USER_PROFILE_TABLES) {
+      const response = await fetch(`${apiConfig.restUrl}/${table}?id=eq.${encodeURIComponent(userId)}`, {
+        method: 'PATCH',
+        headers: getAuthenticatedHeaders({ Prefer: 'return=representation' }),
+        body: JSON.stringify(body),
+      }).catch(() => null)
+
+      if (!response) continue
+      lastResponse = response
+
+      if (response.ok) {
+        const data = await response.json().catch(() => null)
+        return normalizeListedUser(normalizeCollection(data)[0] || data || body)
+      }
+
+      if (![404, 406].includes(response.status)) {
+        throw new Error(await getResponseError(response, 'Erro ao atualizar usuário.'))
+      }
+    }
+
+    throw new Error(await getResponseError(lastResponse, 'Tabela de perfis de usuários não encontrada.'))
+  },
+
   async remove(userId) {
     const response = await fetch(`${apiConfig.functionsUrl}/delete-user`, {
       method: 'POST',
@@ -100,6 +136,8 @@ function buildCreateUserBody(data) {
     phone: data.phone?.trim(),
     cpf: data.cpf?.trim(),
     role: data.role,
+    crm: data.crm?.trim(),
+    crm_uf: data.crm_uf?.trim() || data.crmUf?.trim(),
   }
 
   if (data.create_patient_record) {
@@ -116,5 +154,13 @@ function normalizeListedUser(user) {
     email: user.email || user.user_email || '',
     full_name: user.full_name || user.name || user.nome || '',
     role: Array.isArray(user.roles) ? user.roles[0] : (user.role || user.cargo || ''),
+    crm: user.crm || '',
+    crm_uf: user.crm_uf || user.crmUf || '',
   }
+}
+
+function cleanPayload(payload) {
+  return Object.fromEntries(
+    Object.entries(payload).filter(([, value]) => value !== undefined && value !== null && value !== ''),
+  )
 }

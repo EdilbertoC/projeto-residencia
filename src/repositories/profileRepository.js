@@ -17,7 +17,10 @@ export const profileRepository = {
       profile?.avatarUrl ||
       user?.avatarUrl ||
       user?.avatar_url ||
+      profile?.avatar_path ||
+      user?.avatar_path ||
       meta.avatar_url ||
+      meta.avatar_path ||
       meta.picture ||
       ''
 
@@ -28,7 +31,7 @@ export const profileRepository = {
       phone: profile?.phone || user?.phone || user?.telefone || meta.phone || meta.telefone || '',
       role: ROLE_LABELS[normalizedRole] || user?.role || user?.cargo || meta.role || meta.cargo || 'Usuário do Sistema',
       unit: profile?.unit || user?.unit || user?.unidade || meta.unit || meta.unidade || 'Clínica Boa Vista',
-      avatarUrl,
+      avatarUrl: getAvatarUrl(avatarUrl),
       doctorId: data?.doctor_id || data?.doctorId || null,
       patientId: data?.patient_id || data?.patientId || null,
       roles,
@@ -80,7 +83,7 @@ export const profileRepository = {
     }
 
     return {
-      avatarUrl: `${apiConfig.storageUrl}/object/public/avatars/${objectPath}`,
+      avatarUrl: getAvatarUrl(objectPath),
       path: objectPath,
     }
   },
@@ -105,10 +108,18 @@ export const profileRepository = {
 }
 
 function normalizeAvatarResponse(data) {
+  const path = data.path || data.key || ''
   return {
-    avatarUrl: data.avatarUrl || data.avatar_url || data.publicUrl || data.public_url || data.url || '',
-    path: data.path || data.key || '',
+    avatarUrl: data.avatarUrl || data.avatar_url || data.publicUrl || data.public_url || data.url || getAvatarUrl(path),
+    path,
   }
+}
+
+function getAvatarUrl(path) {
+  const objectPath = String(path || '').replace(/^\/+/, '')
+  if (!objectPath) return ''
+  if (/^https?:\/\//i.test(objectPath)) return objectPath
+  return `${apiConfig.storageUrl}/object/avatars/${objectPath}`
 }
 
 function collectRoles({ data, meta, profile, user }) {

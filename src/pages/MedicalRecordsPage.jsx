@@ -1,16 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { FeatureCallout } from '../components/FeatureState.jsx'
+import { DarkField, appCardClass as cardClass, appInputClass as inputClass, appTextareaClass as textareaClass } from '../components/ui.jsx'
 import { medicalRecordRepository } from '../repositories/medicalRecordRepository.js'
 import { patientRepository } from '../repositories/patientRepository.js'
 import { reportRepository } from '../repositories/reportRepository.js'
-
-const inputClass =
-  'h-10 w-full rounded-lg border border-[#404040] bg-[#1a1a1a] px-3 text-sm text-[#e5e5e5] outline-none transition placeholder:text-[#a3a3a3] focus:border-[#3b82f6] focus:ring-1 focus:ring-[#3b82f6]'
-const textareaClass =
-  'min-h-28 w-full rounded-lg border border-[#404040] bg-[#1a1a1a] px-3 py-2 text-sm leading-6 text-[#e5e5e5] outline-none transition placeholder:text-[#a3a3a3] focus:border-[#3b82f6] focus:ring-1 focus:ring-[#3b82f6]'
-const labelClass = 'mb-1 block text-xs font-medium text-[#e5e5e5]'
-const cardClass = 'rounded-2xl border border-[#404040] bg-[#262626] shadow-sm'
 
 const emptyRecord = {
   patientId: '',
@@ -426,19 +420,28 @@ function RecordEditorPage({ navigate, onSave, patients, record, recordTypes }) {
             <DarkField label="Paciente *">
               <input
                 className={inputClass}
+                list="medical-record-patients"
                 onChange={(event) => {
-                  setPatientSearch(event.target.value)
-                  setFormData((currentData) => ({ ...currentData, patientId: '', patient: event.target.value }))
+                  const value = event.target.value
+                  const matchedPatient = patients.find((patient) => normalizeSearch(getPatientName(patient)) === normalizeSearch(value))
+                  setPatientSearch(value)
+
+                  if (matchedPatient) {
+                    selectPatient(matchedPatient)
+                    return
+                  }
+
+                  setFormData((currentData) => ({ ...currentData, patientId: '', patient: value }))
                 }}
                 placeholder="Buscar paciente..."
                 type="search"
                 value={patientSearch}
               />
-              <PatientPickList
-                items={filteredPatients}
-                onSelect={selectPatient}
-                selectedId={formData.patientId}
-              />
+              <datalist id="medical-record-patients">
+                {filteredPatients.map((patient) => (
+                  <option key={patient.id || getPatientName(patient)} value={getPatientName(patient)} />
+                ))}
+              </datalist>
             </DarkField>
             <DarkField label="Status *">
               <select className={inputClass} name="status" onChange={updateField} value={formData.status}>
@@ -543,33 +546,6 @@ function RecordEditorPage({ navigate, onSave, patients, record, recordTypes }) {
           </div>
         </aside>
       </form>
-    </div>
-  )
-}
-
-function PatientPickList({ items, onSelect, selectedId }) {
-  return (
-    <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-[#404040] bg-[#1a1a1a]">
-      {items.length ? (
-        items.map((patient) => {
-          const selected = String(patient.id || '') === String(selectedId || '')
-          return (
-            <button
-              className={`block w-full px-3 py-2 text-left text-sm transition ${
-                selected ? 'bg-[#3b82f6]/20 text-[#e5e5e5]' : 'text-[#a3a3a3] hover:bg-[#2a2a2a] hover:text-[#e5e5e5]'
-              }`}
-              key={patient.id || getPatientName(patient)}
-              onClick={() => onSelect(patient)}
-              type="button"
-            >
-              <span className="block font-semibold">{getPatientName(patient)}</span>
-              <span className="mt-0.5 block text-xs text-[#737373]">{patient.cpf || patient.document || patient.email || 'Sem documento'}</span>
-            </button>
-          )
-        })
-      ) : (
-        <p className="px-3 py-2 text-xs text-[#737373]">Nenhum paciente encontrado.</p>
-      )}
     </div>
   )
 }
@@ -686,15 +662,6 @@ function IconButton({ label, name, onClick }) {
     >
       <RecordIcon className="size-4" name={name} />
     </button>
-  )
-}
-
-function DarkField({ children, label }) {
-  return (
-    <div className="block">
-      <span className={labelClass}>{label}</span>
-      {children}
-    </div>
   )
 }
 

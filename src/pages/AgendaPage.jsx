@@ -15,6 +15,7 @@ import { useState } from 'react'
 import { AgendaDailyView } from '../components/calendar/AgendaDailyView.jsx'
 import { AgendaMonthlyView } from '../components/calendar/AgendaMonthlyView.jsx'
 import { AgendaWeeklyView } from '../components/calendar/AgendaWeeklyView.jsx'
+import { StethoscopeIcon } from '../components/Brand.jsx'
 import { useAgenda } from '../hooks/useAgenda.js'
 import { formatLocalDateInput, parseLocalDate } from '../utils/agendaDate.js'
 
@@ -332,16 +333,20 @@ export function AgendaPage() {
                   type="search"
                   value={modalPatientSearch || getPatientLabel(selectedPatient)}
                 />
-                <SearchResults
-                  emptyText="Nenhum paciente encontrado."
-                  getLabel={getPatientLabel}
-                  items={filteredPatients.slice(0, 5)}
-                  onSelect={(patient) => {
-                    updateForm('patientId', patient.id)
-                    setModalPatientSearch(getPatientLabel(patient))
-                  }}
-                  selectedId={form.patientId}
-                />
+                {modalPatientSearch && !form.patientId ? (
+                  <SearchResults
+                    emptyText="Nenhum paciente encontrado."
+                    getLabel={getPatientLabel}
+                    items={filteredPatients.slice(0, 5)}
+                    onSelect={(patient) => {
+                      updateForm('patientId', patient.id)
+                      setModalPatientSearch(getPatientLabel(patient))
+                    }}
+                    selectedId={form.patientId}
+                  />
+                ) : selectedPatient ? (
+                  <SelectedHint label={getPatientLabel(selectedPatient)} />
+                ) : null}
               </DarkField>
 
               <DarkField label="Profissional">
@@ -364,17 +369,21 @@ export function AgendaPage() {
                       type="search"
                       value={modalDoctorSearch || selectedProfessional?.name || ''}
                     />
-                    <SearchResults
-                      emptyText="Nenhum médico encontrado."
-                      getDescription={(professional) => professional.unit || professional.email}
-                      getLabel={(professional) => professional.name}
-                      items={filteredProfessionals.slice(0, 5)}
-                      onSelect={(professional) => {
-                        updateForm('professionalId', professional.id)
-                        setModalDoctorSearch(professional.name)
-                      }}
-                      selectedId={form.professionalId}
-                    />
+                    {modalDoctorSearch && !form.professionalId ? (
+                      <SearchResults
+                        emptyText="Nenhum médico encontrado."
+                        getDescription={(professional) => professional.unit || professional.email}
+                        getLabel={(professional) => professional.name}
+                        items={filteredProfessionals.slice(0, 5)}
+                        onSelect={(professional) => {
+                          updateForm('professionalId', professional.id)
+                          setModalDoctorSearch(professional.name)
+                        }}
+                        selectedId={form.professionalId}
+                      />
+                    ) : selectedProfessional ? (
+                      <SelectedHint label={selectedProfessional.name} />
+                    ) : null}
                   </>
                 )}
               </DarkField>
@@ -481,6 +490,7 @@ export function AgendaPage() {
                 Agendamento de {selectedPatient ? getPatientLabel(selectedPatient) : 'paciente não informado'} às {form.time}.
               </p>
               <p className="mt-1">Status atual: {form.status}</p>
+              <p className="mt-1">Criado por: {editingAppointment.createdByName || editingAppointment.createdBy || 'Usuário não informado'}</p>
               {form.notes ? <p className="mt-1">Observações: {form.notes}</p> : null}
             </div>
           ) : null}
@@ -530,9 +540,14 @@ function DarkModal({ children, onClose, open, title }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center">
-      <div className="w-full max-w-4xl rounded-2xl border border-[#404040] bg-[#262626] shadow-2xl">
+      <div className="flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-[#404040] bg-[#242424] shadow-2xl">
         <div className="flex items-center justify-between gap-4 border-b border-[#404040] px-5 py-4">
-          <h2 className="text-lg font-bold text-[#e5e5e5]">{title}</h2>
+          <div className="flex items-center gap-3">
+            <span className="grid size-9 place-items-center rounded-sm bg-[#3b82f6] text-white">
+              <StethoscopeIcon className="size-5" />
+            </span>
+            <h2 className="text-lg font-bold text-[#e5e5e5]">{title}</h2>
+          </div>
           <button
             aria-label="Fechar"
             className="grid size-8 place-items-center rounded-sm text-xl leading-none text-[#a3a3a3] transition hover:bg-[#303030] hover:text-[#e5e5e5]"
@@ -542,9 +557,17 @@ function DarkModal({ children, onClose, open, title }) {
             x
           </button>
         </div>
-        <div className="p-5">{children}</div>
+        <div className="min-h-0 overflow-y-auto p-5">{children}</div>
       </div>
     </div>
+  )
+}
+
+function SelectedHint({ label }) {
+  return (
+    <span className="rounded-md border border-[#404040] bg-[#1f1f1f] px-3 py-2 text-xs font-semibold text-[#a3a3a3]">
+      Selecionado: {label}
+    </span>
   )
 }
 

@@ -1,19 +1,49 @@
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://yuanqfswhberkoevtmfr.supabase.co'
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl1YW5xZnN3aGJlcmtvZXZ0bWZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ5NTQzNjksImV4cCI6MjA3MDUzMDM2OX0.g8Fm4XAvtX46zifBZnYVH4tVuQkqUH6Ia9CXQj4DztQ'
+const env = import.meta.env ?? {}
+const SUPABASE_URL = readEnv('VITE_SUPABASE_URL')
+const SUPABASE_ANON_KEY = readEnv('VITE_SUPABASE_ANON_KEY')
+const SUPABASE_FUNCTIONS_URL = readEnv('VITE_SUPABASE_FUNCTIONS_URL')
+const SUPABASE_REST_URL = readEnv('VITE_SUPABASE_REST_URL')
+const SUPABASE_STORAGE_URL = readEnv('VITE_SUPABASE_STORAGE_URL')
+const API_BASE_URL = readEnv('VITE_API_BASE_URL')
 
 const AUTH_SESSION_KEY = 'mediconnect.auth.session'
 export const AUTH_SESSION_CHANGED_EVENT = 'mediconnect:auth-session-changed'
 
 export const apiConfig = {
-  apiUrl: import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || `${SUPABASE_URL}/functions/v1`,
+  apiUrl: API_BASE_URL || SUPABASE_FUNCTIONS_URL || joinUrl(SUPABASE_URL, '/functions/v1'),
   supabaseUrl: SUPABASE_URL,
-  restUrl: import.meta.env.VITE_SUPABASE_REST_URL || `${SUPABASE_URL}/rest/v1`,
-  functionsUrl: import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || `${SUPABASE_URL}/functions/v1`,
-  storageUrl: import.meta.env.VITE_SUPABASE_STORAGE_URL || `${SUPABASE_URL}/storage/v1`,
+  restUrl: SUPABASE_REST_URL || joinUrl(SUPABASE_URL, '/rest/v1'),
+  functionsUrl: SUPABASE_FUNCTIONS_URL || joinUrl(SUPABASE_URL, '/functions/v1'),
+  storageUrl: SUPABASE_STORAGE_URL || joinUrl(SUPABASE_URL, '/storage/v1'),
   anonKey: SUPABASE_ANON_KEY,
 }
 
+export function getMissingApiConfig() {
+  return [
+    ['VITE_SUPABASE_URL', apiConfig.supabaseUrl],
+    ['VITE_SUPABASE_ANON_KEY', apiConfig.anonKey],
+  ]
+    .filter(([, value]) => !value)
+    .map(([name]) => name)
+}
+
+export function assertApiConfig() {
+  const missing = getMissingApiConfig()
+
+  if (missing.length) {
+    throw new Error(
+      `Configuração da API incompleta. Defina ${missing.join(' e ')} no ambiente.`,
+    )
+  }
+}
+
 export function apiEndpoint(path, baseUrl = apiConfig.apiUrl) {
+  assertApiConfig()
+
+  if (!baseUrl) {
+    throw new Error('URL da API não configurada.')
+  }
+
   const normalizedBase = baseUrl.replace(/\/+$/, '')
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
   return `${normalizedBase}${normalizedPath}`
@@ -50,7 +80,6 @@ export function hasAuthenticatedSession() {
   const session = getAuthSession()
   if (!session?.access_token) return false
 
-  // Validate expiration locally if available
   if (session.expires_at && session.expires_at * 1000 <= Date.now()) {
     clearAuthSession()
     return false
@@ -60,6 +89,8 @@ export function hasAuthenticatedSession() {
 }
 
 export function getAnonHeaders(extraHeaders = {}) {
+  assertApiConfig()
+
   return cleanHeaders({
     apikey: apiConfig.anonKey,
     'Content-Type': 'application/json',
@@ -68,6 +99,8 @@ export function getAnonHeaders(extraHeaders = {}) {
 }
 
 export function getAuthenticatedHeaders(extraHeaders = {}) {
+  assertApiConfig()
+
   const session = getAuthSession()
   const accessToken = session?.access_token
 
@@ -90,5 +123,22 @@ function cleanHeaders(headers) {
 }
 
 function notifyAuthSessionChanged() {
-  window.dispatchEvent(new Event(AUTH_SESSION_CHANGED_EVENT))
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(AUTH_SESSION_CHANGED_EVENT))
+  }
+}
+
+function readEnv(name) {
+  if (env[name]) return env[name]
+
+  if (typeof process !== 'undefined' && process.env?.[name]) {
+    return process.env[name]
+  }
+
+  return ''
+}
+
+function joinUrl(baseUrl, path) {
+  if (!baseUrl) return ''
+  return `${baseUrl.replace(/\/+$/, '')}${path}`
 }

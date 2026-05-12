@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { FeatureCallout } from '../components/FeatureState.jsx'
-import { featurePanelClass } from '../components/featureStateStyles.js'
 import { normalizeRole } from '../config/permissions.js'
 import { authRepository } from '../repositories/authRepository.js'
 import { profileRepository } from '../repositories/profileRepository.js'
@@ -71,21 +69,13 @@ export function ProfilePage({ navigate }) {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      {canEditProfile ? (
-        <FeatureCallout
-          description="Carregar perfil, avatar e logout usam integração. O botão de salvar preferências desta tela ainda grava só localmente."
-          status="partial"
-          title="Perfil com persistência parcial"
-        />
-      ) : null}
-
       <header>
         <h1 className="text-2xl font-bold tracking-tight text-[#f5f5f5]">Perfil</h1>
         <p className="mt-1 text-sm text-[#b8b8b8]">Dados do usuário logado e preferências básicas do shell.</p>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-        <section className={`${cardClass} ${featurePanelClass(canEditProfile ? 'partial' : 'live')} p-6`}>
+        <section className={`${cardClass} p-6`}>
           <div className="mb-6 flex items-center gap-4">
             {profile.avatarUrl ? (
               <img alt="" className="size-16 rounded-full border border-[#3b82f6]/30 object-cover" src={profile.avatarUrl} />
@@ -97,25 +87,21 @@ export function ProfilePage({ navigate }) {
             <div>
               <h2 className="text-lg font-bold text-[#f5f5f5]">{profile.name}</h2>
               <p className="mt-1 text-sm text-[#a3a3a3]">{profile.role}</p>
-              {canEditProfile ? (
-                <>
-                  <button
-                    className="mt-1 text-xs font-semibold text-[#3b82f6] disabled:opacity-60"
-                    disabled={uploadingAvatar}
-                    onClick={() => fileInputRef.current?.click()}
-                    type="button"
-                  >
-                    {uploadingAvatar ? 'Enviando...' : 'Alterar foto'}
-                  </button>
-                  <input
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleAvatarChange}
-                    ref={fileInputRef}
-                    type="file"
-                  />
-                </>
-              ) : null}
+              <button
+                className="mt-1 text-xs font-semibold text-[#3b82f6] disabled:opacity-60"
+                disabled={uploadingAvatar}
+                onClick={() => fileInputRef.current?.click()}
+                type="button"
+              >
+                {uploadingAvatar ? 'Enviando...' : 'Alterar foto'}
+              </button>
+              <input
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarChange}
+                ref={fileInputRef}
+                type="file"
+              />
               {avatarError ? <p className="mt-1 text-xs font-semibold text-red-400">{avatarError}</p> : null}
             </div>
           </div>
@@ -165,7 +151,7 @@ export function ProfilePage({ navigate }) {
           </form>
         </section>
 
-        <aside className={`${cardClass} ${featurePanelClass('live')} p-6`}>
+        <aside className={`${cardClass} p-6`}>
           <h2 className="text-xl font-bold text-[#f5f5f5]">Resumo de acesso</h2>
           <dl className="mt-5 grid gap-4 text-sm">
             <Info label="Perfil" value={profile.role} />
